@@ -18,6 +18,7 @@ from slowquant.unitary_coupled_cluster.density_matrix import (
 from slowquant.unitary_coupled_cluster.operator_hybrid import (
     convert_pauli_to_hybrid_form,
     expectation_value_hybrid,
+    expectation_value_hybrid_flow,
 )
 from slowquant.unitary_coupled_cluster.operator_pauli import (
     energy_hamiltonian_pauli,
@@ -490,6 +491,75 @@ class WaveFunctionUCC:
                                 self.state_vector,
                             )
         return self._rdm2
+
+    @property
+    def rdm3(self) -> np.ndarray:
+        if self._rdm3 is None:
+            self._rdm3 = np.zeros(
+                (
+                    self.num_active_orbs,
+                    self.num_active_orbs,
+                    self.num_active_orbs,
+                    self.num_active_orbs,
+                    self.num_active_orbs,
+                    self.num_active_orbs,
+                )
+            )
+
+            E = {}
+            for p in range(self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs):
+                for q in range(self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs):
+                    E[(p, q)] = convert_pauli_to_hybrid_form(
+                        epq_pauli(p, q, self.num_spin_orbs, self.num_elec),
+                        self.num_inactive_spin_orbs,
+                        self.num_active_spin_orbs,
+                        self.num_virtual_spin_orbs,
+                    )
+
+            for p in range(self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs):
+                for q in range(self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs):
+                    for r in range(self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs):
+                        for s in range(self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs):
+                            for t in range(
+                                self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs
+                            ):
+                                for u in range(
+                                    self.num_inactive_orbs, self.num_inactive_orbs + self.num_active_orbs
+                                ):
+                                    val = expectation_value_hybrid_flow(
+                                        self.state_vector,
+                                        [E[(p, q)], E[(r, s)], E[(t, u)]],
+                                        self.state_vector,
+                                    )
+                                    if t == s:
+                                        val -= expectation_value_hybrid_flow(
+                                            self.state_vector, [E[(p, q)], E[(r, u)]], self.state_vector
+                                        )
+                                    if r == q:
+                                        val -= expectation_value_hybrid_flow(
+                                            self.state_vector, [E[(p, s)], E[(t, u)]], self.state_vector
+                                        )
+                                    if r == q and t == s:
+                                        val += expectation_value_hybrid_flow(
+                                            self.state_vector, [E[(p, u)]], self.state_vector
+                                        )
+                                    if t == q:
+                                        val -= expectation_value_hybrid_flow(
+                                            self.state_vector, [E[(p, u)], E[(r, s)]], self.state_vector
+                                        )
+                                    if t == q and r == u:
+                                        val += expectation_value_hybrid_flow(
+                                            self.state_vector, [E[(p, s)]], self.state_vector
+                                        )
+                                    self._rdm3[
+                                        p - self.num_inactive_orbs,
+                                        q - self.num_inactive_orbs,
+                                        r - self.num_inactive_orbs,
+                                        s - self.num_inactive_orbs,
+                                        t - self.num_inactive_orbs,
+                                        u - self.num_inactive_orbs,
+                                    ] = val
+        return self._rdm3
 
     def check_orthonormality(self, overlap_integral: np.ndarray) -> None:
         S_ortho = one_electron_integral_transform(self.c_trans, overlap_integral)

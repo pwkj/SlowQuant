@@ -12,6 +12,7 @@ from slowquant.unitary_coupled_cluster.density_matrix import (
     get_orbital_gradient_response,
     get_orbital_response_property_gradient,
     get_orbital_response_vector_norm,
+    get_orbital_response_metric_sgima,
 )
 from slowquant.unitary_coupled_cluster.linear_response.lr_baseclass import (
     LinearResponseBaseClass,
@@ -23,7 +24,6 @@ from slowquant.unitary_coupled_cluster.operator_hybrid import (
 from slowquant.unitary_coupled_cluster.operator_pauli import (
     OperatorPauli,
     epq_pauli,
-    hamiltonian_pauli_2i_2a,
 )
 from slowquant.unitary_coupled_cluster.ucc_wavefunction import WaveFunctionUCC
 
@@ -44,27 +44,13 @@ class LinearResponseUCC(LinearResponseBaseClass):
         """
         super().__init__(wave_function, excitations, is_spin_conserving)
 
-        H_2i_2a = convert_pauli_to_hybrid_form(
-            hamiltonian_pauli_2i_2a(
-                self.wf.h_ao,
-                self.wf.g_ao,
-                self.wf.c_trans,
-                self.wf.num_inactive_spin_orbs,
-                self.wf.num_active_spin_orbs,
-                self.wf.num_virtual_spin_orbs,
-                self.wf.num_elec,
-            ),
-            self.wf.num_inactive_spin_orbs,
-            self.wf.num_active_spin_orbs,
-            self.wf.num_virtual_spin_orbs,
-        )
-
         rdms = ReducedDenstiyMatrix(
             self.wf.num_inactive_orbs,
             self.wf.num_active_orbs,
             self.wf.num_virtual_orbs,
             self.wf.rdm1,
             rdm2=self.wf.rdm2,
+            rdm3=self.wf.rdm3,
         )
         idx_shift = len(self.q_ops)
         self.csf = copy.deepcopy(self.wf.state_vector)
@@ -104,25 +90,19 @@ class LinearResponseUCC(LinearResponseBaseClass):
             print("idx, max(abs(grad active)):", np.argmax(np.abs(grad)), np.max(np.abs(grad)))
             if np.max(np.abs(grad)) > 10**-3:
                 raise ValueError("Large Gradient detected in G of ", np.max(np.abs(grad)))
-        for j, opJ in enumerate(self.q_ops):
-            qJ = opJ.operator
-            for i, opI in enumerate(self.q_ops):
-                qI = opI.operator
-                if i < j:
-                    continue
-                # Make A
-                val = expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qI.dagger, H_2i_2a, qJ], self.wf.state_vector
-                )
-                val -= (
-                    expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector)
-                    * self.wf.energy_elec
-                )
-                self.A[i, j] = self.A[j, i] = val
-                # Make Sigma
-                self.Sigma[i, j] = self.Sigma[j, i] = expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
-                )
+        # Do orbital-orbital blocks
+        self.A[: len(self.q_ops), : len(self.q_ops)] = get_projected_orbital_response_hessian_block(
+            rdms,
+            self.wf.h_mo,
+            self.wf.g_mo,
+            self.wf.kappa_idx_dagger,
+            self.wf.kappa_idx,
+            self.wf.num_inactive_orbs,
+            self.wf.num_active_orbs,
+        )
+        self.Sigma[: len(self.q_ops), : len(self.q_ops)] = get_orbital_response_metric_sgima(
+            rdms, self.wf.kappa_idx
+        )
         for j, opJ in enumerate(self.q_ops):
             qJ = opJ.operator
             for i, opI in enumerate(self.G_ops):

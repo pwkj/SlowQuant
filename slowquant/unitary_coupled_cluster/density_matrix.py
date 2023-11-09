@@ -9,14 +9,15 @@ class ReducedDenstiyMatrix:
         num_virtual_orbs: int,
         rdm1: np.ndarray,
         rdm2: np.ndarray | None = None,
+        rdm3: np.ndarray | None = None,
     ) -> None:
         self.inactive_idx = []
-        self.actitve_idx = []
+        self.active_idx = []
         self.virtual_idx = []
         for idx in range(num_inactive_orbs):
             self.inactive_idx.append(idx)
         for idx in range(num_inactive_orbs, num_inactive_orbs + num_active_orbs):
-            self.actitve_idx.append(idx)
+            self.active_idx.append(idx)
         for idx in range(
             num_inactive_orbs + num_active_orbs,
             num_inactive_orbs + num_active_orbs + num_virtual_orbs,
@@ -25,9 +26,10 @@ class ReducedDenstiyMatrix:
         self.idx_shift = num_inactive_orbs
         self.rdm1 = rdm1
         self.rdm2 = rdm2
+        self.rdm3 = rdm3
 
     def RDM1(self, p: int, q: int) -> float:
-        if p in self.actitve_idx and q in self.actitve_idx:
+        if p in self.active_idx and q in self.active_idx:
             return self.rdm1[p - self.idx_shift, q - self.idx_shift]
         if p in self.inactive_idx and q in self.inactive_idx:
             if p == q:
@@ -38,12 +40,7 @@ class ReducedDenstiyMatrix:
     def RDM2(self, p: int, q: int, r: int, s: int) -> float:
         if self.rdm2 is None:
             raise ValueError("RDM2 is not given.")
-        if (
-            p in self.actitve_idx
-            and q in self.actitve_idx
-            and r in self.actitve_idx
-            and s in self.actitve_idx
-        ):
+        if p in self.active_idx and q in self.active_idx and r in self.active_idx and s in self.active_idx:
             return self.rdm2[
                 p - self.idx_shift,
                 q - self.idx_shift,
@@ -52,25 +49,25 @@ class ReducedDenstiyMatrix:
             ]
         if (
             p in self.inactive_idx
-            and q in self.actitve_idx
-            and r in self.actitve_idx
+            and q in self.active_idx
+            and r in self.active_idx
             and s in self.inactive_idx
         ):
             if p == s:
                 return -self.rdm1[q - self.idx_shift, r - self.idx_shift]
             return 0
         if (
-            p in self.actitve_idx
+            p in self.active_idx
             and q in self.inactive_idx
             and r in self.inactive_idx
-            and s in self.actitve_idx
+            and s in self.active_idx
         ):
             if q == r:
                 return -self.rdm1[p - self.idx_shift, s - self.idx_shift]
             return 0
         if (
-            p in self.actitve_idx
-            and q in self.actitve_idx
+            p in self.active_idx
+            and q in self.active_idx
             and r in self.inactive_idx
             and s in self.inactive_idx
         ):
@@ -80,8 +77,8 @@ class ReducedDenstiyMatrix:
         if (
             p in self.inactive_idx
             and q in self.inactive_idx
-            and r in self.actitve_idx
-            and s in self.actitve_idx
+            and r in self.active_idx
+            and s in self.active_idx
         ):
             if p == q:
                 return 2 * self.rdm1[r - self.idx_shift, s - self.idx_shift]
@@ -97,6 +94,361 @@ class ReducedDenstiyMatrix:
                 val += 4
             if q == r and p == s:
                 val -= 2
+            return val
+        return 0
+
+    def RDM3(self, p: int, q: int, r: int, s: int, t: int, u: int) -> float:
+        if self.rdm2 is None:
+            raise ValueError("RDM2 is not given.")
+        if self.rdm3 is None:
+            raise ValueError("RDM3 is not given.")
+        # PQ RS TU
+        # A = Active, I = Inactive
+        # AA AA AA
+        if (
+            p in self.active_idx
+            and q in self.active_idx
+            and r in self.active_idx
+            and s in self.active_idx
+            and t in self.active_idx
+            and u in self.active_idx
+        ):
+            return self.rdm3[
+                p - self.idx_shift,
+                q - self.idx_shift,
+                r - self.idx_shift,
+                s - self.idx_shift,
+                t - self.idx_shift,
+                u - self.idx_shift,
+            ]
+        # AA AI IA
+        if (
+            p in self.active_idx
+            and q in self.active_idx
+            and r in self.active_idx
+            and s in self.inactive_idx
+            and t in self.inactive_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if t == s:
+                val -= self.rdm2[
+                    p - self.idx_shift,
+                    q - self.idx_shift,
+                    r - self.idx_shift,
+                    u - self.idx_shift,
+                ]
+            return val
+        # AA IA AI
+        if (
+            p in self.active_idx
+            and q in self.active_idx
+            and r in self.inactive_idx
+            and s in self.active_idx
+            and t in self.active_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if r == u:
+                val -= self.rdm2[
+                    p - self.idx_shift,
+                    q - self.idx_shift,
+                    t - self.idx_shift,
+                    s - self.idx_shift,
+                ]
+            return val
+        # AI AA IA
+        if (
+            p in self.active_idx
+            and q in self.inactive_idx
+            and r in self.active_idx
+            and s in self.active_idx
+            and t in self.inactive_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if q == t:
+                val -= self.rdm2[
+                    p - self.idx_shift,
+                    u - self.idx_shift,
+                    r - self.idx_shift,
+                    s - self.idx_shift,
+                ]
+            return val
+        # IA AA AI
+        if (
+            p in self.inactive_idx
+            and q in self.active_idx
+            and r in self.active_idx
+            and s in self.active_idx
+            and t in self.active_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if p == u:
+                val -= self.rdm2[
+                    t - self.idx_shift,
+                    q - self.idx_shift,
+                    r - self.idx_shift,
+                    s - self.idx_shift,
+                ]
+            return val
+        # AI IA AA
+        if (
+            p in self.active_idx
+            and q in self.inactive_idx
+            and r in self.inactive_idx
+            and s in self.active_idx
+            and t in self.active_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if q == r:
+                val -= self.rdm2[
+                    p - self.idx_shift,
+                    s - self.idx_shift,
+                    t - self.idx_shift,
+                    u - self.idx_shift,
+                ]
+            return val
+        # IA AI AA
+        if (
+            p in self.inactive_idx
+            and q in self.active_idx
+            and r in self.active_idx
+            and s in self.inactive_idx
+            and t in self.active_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if p == s:
+                val -= self.rdm2[
+                    r - self.idx_shift,
+                    q - self.idx_shift,
+                    t - self.idx_shift,
+                    u - self.idx_shift,
+                ]
+            return val
+        # AA AA II
+        if (
+            p in self.active_idx
+            and q in self.active_idx
+            and r in self.active_idx
+            and s in self.active_idx
+            and t in self.inactive_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if t == u:
+                val += (
+                    2
+                    * self.rdm2[
+                        p - self.idx_shift,
+                        q - self.idx_shift,
+                        r - self.idx_shift,
+                        s - self.idx_shift,
+                    ]
+                )
+            return val
+        # AA II AA
+        if (
+            p in self.active_idx
+            and q in self.active_idx
+            and r in self.inactive_idx
+            and s in self.inactive_idx
+            and t in self.active_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if r == s:
+                val += (
+                    2
+                    * self.rdm2[
+                        p - self.idx_shift,
+                        q - self.idx_shift,
+                        t - self.idx_shift,
+                        u - self.idx_shift,
+                    ]
+                )
+            return val
+        # II AA AA
+        if (
+            p in self.inactive_idx
+            and q in self.inactive_idx
+            and r in self.active_idx
+            and s in self.active_idx
+            and t in self.active_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if p == q:
+                val += (
+                    2
+                    * self.rdm2[
+                        r - self.idx_shift,
+                        s - self.idx_shift,
+                        t - self.idx_shift,
+                        u - self.idx_shift,
+                    ]
+                )
+            return val
+        # AI IA II
+        if (
+            p in self.active_idx
+            and q in self.inactive_idx
+            and r in self.inactive_idx
+            and s in self.active_idx
+            and t in self.inactive_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if t == q and r == u:
+                val += self.rdm1[p - self.idx_shift, s - self.idx_shift]
+            if r == q and t == u:
+                val -= 2 * self.rdm1[p - self.idx_shift, s - self.idx_shift]
+            return val
+        # AI II IA
+        if (
+            p in self.active_idx
+            and q in self.inactive_idx
+            and r in self.inactive_idx
+            and s in self.inactive_idx
+            and t in self.inactive_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if r == q and t == s:
+                val += self.rdm1[p - self.idx_shift, u - self.idx_shift]
+            if t == q and r == s:
+                val -= 2 * self.rdm1[p - self.idx_shift, u - self.idx_shift]
+            return val
+        # IA AI II
+        if (
+            p in self.inactive_idx
+            and q in self.active_idx
+            and r in self.active_idx
+            and s in self.inactive_idx
+            and t in self.inactive_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if p == u and t == s:
+                val += self.rdm1[q - self.idx_shift, r - self.idx_shift]
+            if p == s and t == u:
+                val -= 2 * self.rdm1[q - self.idx_shift, r - self.idx_shift]
+            return val
+        # II AI IA
+        if (
+            p in self.inactive_idx
+            and q in self.inactive_idx
+            and r in self.active_idx
+            and s in self.inactive_idx
+            and t in self.inactive_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if p == s and t == q:
+                val += self.rdm1[r - self.idx_shift, u - self.idx_shift]
+            if p == q and t == s:
+                val -= 2 * self.rdm1[r - self.idx_shift, u - self.idx_shift]
+            return val
+        # IA II AI
+        if (
+            p in self.inactive_idx
+            and q in self.active_idx
+            and r in self.inactive_idx
+            and s in self.inactive_idx
+            and t in self.active_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if p == s and r == u:
+                val += self.rdm1[q - self.idx_shift, t - self.idx_shift]
+            if p == u and r == s:
+                val -= 2 * self.rdm1[q - self.idx_shift, t - self.idx_shift]
+            return val
+        # II IA AI
+        if (
+            p in self.inactive_idx
+            and q in self.inactive_idx
+            and r in self.inactive_idx
+            and s in self.active_idx
+            and t in self.active_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if p == u and r == q:
+                val += self.rdm1[s - self.idx_shift, t - self.idx_shift]
+            if p == q and r == u:
+                val -= 2 * self.rdm1[s - self.idx_shift, t - self.idx_shift]
+            return val
+        # AA II II
+        if (
+            p in self.active_idx
+            and q in self.active_idx
+            and r in self.inactive_idx
+            and s in self.inactive_idx
+            and t in self.inactive_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if r == s and t == u:
+                val += 4 * self.rdm1[p - self.idx_shift, q - self.idx_shift]
+            if r == u and t == s:
+                val -= 2 * self.rdm1[p - self.idx_shift, q - self.idx_shift]
+            return val
+        # II AA II
+        if (
+            p in self.inactive_idx
+            and q in self.inactive_idx
+            and r in self.active_idx
+            and s in self.active_idx
+            and t in self.inactive_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if p == q and t == u:
+                val += 4 * self.rdm1[r - self.idx_shift, s - self.idx_shift]
+            if p == u and t == q:
+                val -= 2 * self.rdm1[r - self.idx_shift, s - self.idx_shift]
+            return val
+        # II II AA
+        if (
+            p in self.inactive_idx
+            and q in self.inactive_idx
+            and r in self.inactive_idx
+            and s in self.inactive_idx
+            and t in self.active_idx
+            and u in self.active_idx
+        ):
+            val = 0
+            if p == q and r == s:
+                val += 4 * self.rdm1[t - self.idx_shift, u - self.idx_shift]
+            if p == s and r == q:
+                val -= 2 * self.rdm1[t - self.idx_shift, u - self.idx_shift]
+            return val
+        # II II II
+        if (
+            p in self.inactive_idx
+            and q in self.inactive_idx
+            and r in self.inactive_idx
+            and s in self.inactive_idx
+            and t in self.inactive_idx
+            and u in self.inactive_idx
+        ):
+            val = 0
+            if p == q and r == s and t == u:
+                val += 8
+            if s == t and p == q and r == u:
+                val -= 4
+            if q == r and p == s and t == u:
+                val -= 4
+            if q == t and p == u and r == s:
+                val -= 4
+            if q == r and s == t and p == u:
+                val += 2
+            if q == t and r == u and p == s:
+                val += 2
             return val
         return 0
 
@@ -286,3 +638,39 @@ def get_orbital_response_hessian_block(
                         if t == n:
                             A2e[idx1, idx2] -= g[p, q, r, m] * rdms.RDM2(p, q, r, u)
     return 1 / 2 * A1e + 1 / 4 * A2e
+
+
+def get_electronic_energy(
+    rdms: ReducedDenstiyMatrix,
+    h: np.ndarray,
+    g: np.ndarray,
+    num_inactive_orbs: int,
+    num_active_orbs: int,
+) -> float:
+    energy = 0
+    for p in range(num_inactive_orbs + num_active_orbs):
+        for q in range(num_inactive_orbs + num_active_orbs):
+            energy += h[p,q]*rdms.RDM1(p,q)
+            for r in range(num_inactive_orbs + num_active_orbs):
+                for s in range(num_inactive_orbs + num_active_orbs):
+                    energy += 1/2*g[p,q,r,s]*rdms.RDM2(p,q,r,s)
+    return energy
+
+def get_projected_orbital_response_hessian_block(
+    rdms: ReducedDenstiyMatrix,
+    h: np.ndarray,
+    g: np.ndarray,
+    kappa_idx1: list[list[int]],
+    kappa_idx2: list[list[int]],
+    num_inactive_orbs: int,
+    num_active_orbs: int,
+) -> np.ndarray:
+    A1e = np.zeros((len(kappa_idx1), len(kappa_idx1)))
+    A2e = np.zeros((len(kappa_idx1), len(kappa_idx1)))
+    A = get_orbital_response_hessian_block(rdms, h, g, kappa_idx1, kappa_idx2, num_inactive_orbs, num_active_orbs)
+    A += get_orbital_response_metric_sgima(rdms, kappa_idx1)*get_electronic_energy(rdms, h, g, num_inactive_orbs, num_active_orbs)
+    for idx1, (t, u) in enumerate(kappa_idx1):
+        for idx2, (m, n) in enumerate(kappa_idx2):
+            # 1e contribution
+            # 2e contribution
+    return A
