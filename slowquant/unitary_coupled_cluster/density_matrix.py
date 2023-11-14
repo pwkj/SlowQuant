@@ -98,6 +98,32 @@ class ReducedDenstiyMatrix:
         return 0
 
     def RDM3(self, p: int, q: int, r: int, s: int, t: int, u: int) -> float:
+        r"""Get three-electron reduced density matrix element.
+
+        .. math::
+            \Gamma^{[3]}_{pqrstu} = \left\{\begin{array}{ll}
+                8\delta_{ij}\delta_{kl}\delta_{mn} - 4\delta_{lm}\delta_{ij}\delta_{kn} - 4\delta_{jk}\delta_{il}\delta_{mn} - 4\delta_{jm}\delta_{in}\delta_{kl} + 2\delta_{jk}\delta_{lm}\delta_{in} + 2\delta_{jm}\delta_{kn}\delta_{il} & pqrstu = ijklmn \\
+                4 \delta_{ij}\delta_{kl}\Gamma^{[1]}_{vw} - 2\delta_{jk}\delta_{il}\Gamma^{[1]}_{vw} & pqrstu = vwijkl \\
+                \delta_{il}\delta_{kj}\Gamma^{[1]}_{wv} - 2\delta_{ij}\delta_{kl}\Gamma^{[1]}_{wv} & pqrstu = ivwjkl \\
+                2\delta_{ij}\Gamma^{[2]}_{vwxy} & pqrstu = vwxyij \\
+                - \delta_{ij}\Gamma^{[2]}_{vwyx} & pqrstu = vwixyj \\
+                \left<0\left|\hat{E}^{wya}_{vxz}\right|0\right> & pqrstu = vwxyza \\
+                0 & \text{otherwise} \\
+                \end{array} \right.
+
+        and the symmetry `\Gamma^{[3]}_{pqrstu}=\Gamma^{[3]}_{pqturs}=\Gamma^{[3]}_{rspqtu}=\Gamma^{[3]}_{rstupq}=\Gamma^{[3]}_{tupqrs}=\Gamma^{[3]}_{turspq}=\Gamma^{[3]}_{qpsrut}=\Gamma^{[3]}_{qputsr}=\Gamma^{[3]}_{srqput}=\Gamma^{[3]}_{srutqp}=\Gamma^{[3]}_{utqpsr}=\Gamma^{[3]}_{utsrqp}`:math:.
+
+        Args:
+            p: Spatial orbital index.
+            q: Spatial orbital index.
+            r: Spatial orbital index.
+            s: Spatial orbital index.
+            t: Spatial orbital index.
+            u: Spatial orbital index.
+
+        Returns:
+            Three-electron reduced density matrix element.
+        """
         if self.rdm2 is None:
             raise ValueError("RDM2 is not given.")
         if self.rdm3 is None:
@@ -647,14 +673,30 @@ def get_electronic_energy(
     num_inactive_orbs: int,
     num_active_orbs: int,
 ) -> float:
+    r"""Calculate electronic energy.
+
+    .. math::
+        E = \left<0\left|\hat{H}\right|0\right>
+
+    Args:
+       rdms: Reduced density matrix class.
+       h: One-electron integrals in MO in Hamiltonian.
+       g: Two-electron integrals in MO in Hamiltonian.
+       num_inactive_orbs: Number of inactive orbitals in spatial basis.
+       num_active_orbs: Number of active orbitals in spatial basis.
+
+    Returns:
+        The electronic energy.
+    """
     energy = 0
     for p in range(num_inactive_orbs + num_active_orbs):
         for q in range(num_inactive_orbs + num_active_orbs):
-            energy += h[p,q]*rdms.RDM1(p,q)
+            energy += h[p, q] * rdms.RDM1(p, q)
             for r in range(num_inactive_orbs + num_active_orbs):
                 for s in range(num_inactive_orbs + num_active_orbs):
-                    energy += 1/2*g[p,q,r,s]*rdms.RDM2(p,q,r,s)
+                    energy += 1 / 2 * g[p, q, r, s] * rdms.RDM2(p, q, r, s)
     return energy
+
 
 def get_projected_orbital_response_hessian_block(
     rdms: ReducedDenstiyMatrix,
@@ -667,10 +709,27 @@ def get_projected_orbital_response_hessian_block(
 ) -> np.ndarray:
     A1e = np.zeros((len(kappa_idx1), len(kappa_idx1)))
     A2e = np.zeros((len(kappa_idx1), len(kappa_idx1)))
-    A = get_orbital_response_hessian_block(rdms, h, g, kappa_idx1, kappa_idx2, num_inactive_orbs, num_active_orbs)
-    A += get_orbital_response_metric_sgima(rdms, kappa_idx1)*get_electronic_energy(rdms, h, g, num_inactive_orbs, num_active_orbs)
+    A = get_orbital_response_hessian_block(
+        rdms, h, g, kappa_idx1, kappa_idx2, num_inactive_orbs, num_active_orbs
+    )
+    print(A)
+    A += get_orbital_response_metric_sgima(rdms, kappa_idx1) * get_electronic_energy(
+        rdms, h, g, num_inactive_orbs, num_active_orbs
+    )
     for idx1, (t, u) in enumerate(kappa_idx1):
         for idx2, (m, n) in enumerate(kappa_idx2):
             # 1e contribution
+            A1e[idx1, idx2] -= h[n, t] * rdms.RDM1(m, u)
+            for p in range(num_inactive_orbs + num_active_orbs):
+                A1e[idx1, idx2] += h[u, p] * rdms.RDM2(m, n, t, p)
+                A1e[idx1, idx2] -= h[p, t] * rdms.RDM2(m, n, p, u)
+                if m == u:
+                    A1e[idx1, idx2] += h[n, p] * rdms.RDM1(t, p)
+                for q in range(num_inactive_orbs + num_active_orbs):
+                    if m == u:
+                        A1e[idx1, idx2] += h[p, q] * rdms.RDM2(t, n, p, q)
+                    if t == n:
+                        A1e[idx1, idx2] -= h[p, q] * rdms.RDM2(m, u, p, q)
             # 2e contribution
-    return A
+    print(1 / 2 * A1e)
+    return A + 1 / 2 * A1e + 1 / 4 * A2e
