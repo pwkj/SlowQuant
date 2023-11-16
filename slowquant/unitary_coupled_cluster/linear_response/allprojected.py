@@ -13,6 +13,7 @@ from slowquant.unitary_coupled_cluster.density_matrix import (
     get_orbital_response_property_gradient,
     get_orbital_response_vector_norm,
     get_orbital_response_metric_sgima,
+    get_projected_orbital_response_hessian_block,
 )
 from slowquant.unitary_coupled_cluster.linear_response.lr_baseclass import (
     LinearResponseBaseClass,
@@ -20,10 +21,13 @@ from slowquant.unitary_coupled_cluster.linear_response.lr_baseclass import (
 from slowquant.unitary_coupled_cluster.operator_hybrid import (
     convert_pauli_to_hybrid_form,
     expectation_value_hybrid_flow,
+    expectation_value_hybrid_flow_double_commutator,
+    expectation_value_hybrid_flow_commutator,
 )
 from slowquant.unitary_coupled_cluster.operator_pauli import (
     OperatorPauli,
     epq_pauli,
+    hamiltonian_pauli_2i_2a,
 )
 from slowquant.unitary_coupled_cluster.ucc_wavefunction import WaveFunctionUCC
 
@@ -91,10 +95,10 @@ class LinearResponseUCC(LinearResponseBaseClass):
             if np.max(np.abs(grad)) > 10**-3:
                 raise ValueError("Large Gradient detected in G of ", np.max(np.abs(grad)))
         # Do orbital-orbital blocks
-        self.A[: len(self.q_ops), : len(self.q_ops)] = get_projected_orbital_response_hessian_block(
+        A_orb = get_projected_orbital_response_hessian_block(
             rdms,
             self.wf.h_mo,
-            self.wf.g_mo,
+            np.zeros_like(self.wf.g_mo),  # self.wf.g_mo,
             self.wf.kappa_idx_dagger,
             self.wf.kappa_idx,
             self.wf.num_inactive_orbs,
@@ -103,6 +107,72 @@ class LinearResponseUCC(LinearResponseBaseClass):
         self.Sigma[: len(self.q_ops), : len(self.q_ops)] = get_orbital_response_metric_sgima(
             rdms, self.wf.kappa_idx
         )
+        H_2i_2a = convert_pauli_to_hybrid_form(
+            hamiltonian_pauli_2i_2a(
+                self.wf.h_ao,
+                np.zeros_like(self.wf.g_ao),  # self.wf.g_ao
+                self.wf.c_trans,
+                self.wf.num_inactive_spin_orbs,
+                self.wf.num_active_spin_orbs,
+                self.wf.num_virtual_spin_orbs,
+                self.wf.num_elec,
+            ),
+            self.wf.num_inactive_spin_orbs,
+            self.wf.num_active_spin_orbs,
+            self.wf.num_virtual_spin_orbs,
+        )
+        A_sanity = np.zeros_like(A_orb)
+        for j, opJ in enumerate(self.q_ops):
+            qJ = opJ.operator
+            for i, opI in enumerate(self.q_ops):
+                qI = opI.operator
+                if i < j:
+                    continue
+                # Make A
+                val = expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, H_2i_2a, qJ], self.wf.state_vector
+                )
+                val -= expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
+                ) * expectation_value_hybrid_flow(self.wf.state_vector, [H_2i_2a], self.wf.state_vector)
+                self.A[i, j] = self.A[j, i] = val
+                # Make Sigma
+                self.Sigma[i, j] = self.Sigma[j, i] = expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
+                )
+                # Make A sanity
+                val = expectation_value_hybrid_flow_double_commutator(
+                    self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector
+                )
+                val += expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, qJ, H_2i_2a], self.wf.state_vector
+                )
+                val -= expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qJ, qI.dagger, H_2i_2a], self.wf.state_vector
+                )
+                val += expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qJ, qI.dagger, H_2i_2a], self.wf.state_vector
+                )
+                val -= expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qJ, H_2i_2a, qI.dagger], self.wf.state_vector
+                )
+                val -= expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
+                ) * expectation_value_hybrid_flow(self.wf.state_vector, [H_2i_2a], self.wf.state_vector)
+                A_sanity[i, j] = A_sanity[j, i] = val
+        print("")
+        print("Expectation value")
+        print(self.A[: len(self.q_ops), : len(self.q_ops)])
+        print("")
+        print("Sanity check")
+        print(A_sanity)
+        print("")
+        print("RDM")
+        print(A_orb)
+        print("")
+        print("difference")
+        print(self.A[: len(self.q_ops), : len(self.q_ops)] - A_orb)
+        raise ValueError()
         for j, opJ in enumerate(self.q_ops):
             qJ = opJ.operator
             for i, opI in enumerate(self.G_ops):
