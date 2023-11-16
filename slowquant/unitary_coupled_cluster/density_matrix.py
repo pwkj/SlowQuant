@@ -709,15 +709,11 @@ def get_projected_orbital_response_hessian_block(
 ) -> np.ndarray:
     A1e = np.zeros((len(kappa_idx1), len(kappa_idx1)))
     A2e = np.zeros((len(kappa_idx1), len(kappa_idx1)))
-    A = get_orbital_response_hessian_block(
-        rdms, h, g, kappa_idx1, kappa_idx2, num_inactive_orbs, num_active_orbs
-    )
+    A = get_orbital_response_hessian_block(rdms, h, g, kappa_idx1, kappa_idx2, num_inactive_orbs, num_active_orbs)
     print("")
     print("proj-q Naive part")
     print(A)
-    A += get_orbital_response_metric_sgima(rdms, kappa_idx1) * get_electronic_energy(
-        rdms, h, g, num_inactive_orbs, num_active_orbs
-    )
+    A += get_orbital_response_metric_sgima(rdms, kappa_idx1) * get_electronic_energy(rdms, h, g, num_inactive_orbs, num_active_orbs)
     for idx1, (t, u) in enumerate(kappa_idx1):
         for idx2, (m, n) in enumerate(kappa_idx2):
             # 1e contribution
@@ -726,11 +722,14 @@ def get_projected_orbital_response_hessian_block(
                 A1e[idx1, idx2] += h[u, p] * rdms.RDM2(m, n, t, p)
                 A1e[idx1, idx2] -= h[p, t] * rdms.RDM2(m, n, p, u)
                 if m == u:
-                    A1e[idx1, idx2] += h[n, p] * rdms.RDM1(t, p)
+                    A1e[idx1, idx2] -= h[n, p] * rdms.RDM1(t, p)
                 for q in range(num_inactive_orbs + num_active_orbs):
                     if m == u:
                         A1e[idx1, idx2] += h[p, q] * rdms.RDM2(t, n, p, q)
                     if t == n:
                         A1e[idx1, idx2] -= h[p, q] * rdms.RDM2(m, u, p, q)
             # 2e contribution
-    return A + 1 / 2 * A1e + 1 / 4 * A2e
+    print("")
+    print("q-proj correction")
+    print(1/2*A1e)
+    return A  + 1 / 2 * A1e + 1 / 4 * A2e
