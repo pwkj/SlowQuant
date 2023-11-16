@@ -150,6 +150,7 @@ class LinearResponseUCC(LinearResponseBaseClass):
         print("difference")
         with np.printoptions(precision=3, suppress=True):
             print(self.A[: len(self.q_ops), : len(self.q_ops)] - A_orb)
+        print(self.A[: len(self.q_ops), : len(self.q_ops)] - A_orb)
         raise ValueError()
         for j, opJ in enumerate(self.q_ops):
             qJ = opJ.operator
