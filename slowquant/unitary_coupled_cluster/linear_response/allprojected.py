@@ -126,28 +126,30 @@ class LinearResponseUCC(LinearResponseBaseClass):
             qJ = opJ.operator
             for i, opI in enumerate(self.q_ops):
                 qI = opI.operator
-                if i < j:
-                    continue
                 # Make A
                 val = expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, H_2i_2a, qJ], self.wf.state_vector)
                 val -= expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector) * expectation_value_hybrid_flow(self.wf.state_vector, [H_2i_2a], self.wf.state_vector)
-                self.A[i, j] = self.A[j, i] = val
+                self.A[i, j] = val
                 # Make Sigma
-                self.Sigma[i, j] = self.Sigma[j, i] = expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector)
+                self.Sigma[i, j] = expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector)
                 # Make A naive
-                A_sanity[i, j] = A_sanity[j, i] = expectation_value_hybrid_flow_double_commutator(self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector)
+                A_sanity[i, j] = expectation_value_hybrid_flow_double_commutator(self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector)
         print("")
         print("Naive expectation value")
-        print(A_sanity)
+        with np.printoptions(precision=3, suppress=True):
+            print(A_sanity)
         print("")
         print("Expectation value")
-        print(self.A[: len(self.q_ops), : len(self.q_ops)])
+        with np.printoptions(precision=3, suppress=True):
+            print(self.A[: len(self.q_ops), : len(self.q_ops)])
         print("")
         print("RDM")
-        print(A_orb)
+        with np.printoptions(precision=3, suppress=True):
+            print(A_orb)
         print("")
         print("difference")
-        print(self.A[: len(self.q_ops), : len(self.q_ops)] - A_orb)
+        with np.printoptions(precision=3, suppress=True):
+            print(self.A[: len(self.q_ops), : len(self.q_ops)] - A_orb)
         raise ValueError()
         for j, opJ in enumerate(self.q_ops):
             qJ = opJ.operator
