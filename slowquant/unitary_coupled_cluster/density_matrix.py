@@ -712,6 +712,8 @@ def get_projected_orbital_response_hessian_block(
     A = get_orbital_response_hessian_block(
         rdms, h, g, kappa_idx1, kappa_idx2, num_inactive_orbs, num_active_orbs
     )
+    print("")
+    print("proj-q Naive part")
     print(A)
     A += get_orbital_response_metric_sgima(rdms, kappa_idx1) * get_electronic_energy(
         rdms, h, g, num_inactive_orbs, num_active_orbs
@@ -731,5 +733,4 @@ def get_projected_orbital_response_hessian_block(
                     if t == n:
                         A1e[idx1, idx2] -= h[p, q] * rdms.RDM2(m, u, p, q)
             # 2e contribution
-    print(1 / 2 * A1e)
     return A + 1 / 2 * A1e + 1 / 4 * A2e

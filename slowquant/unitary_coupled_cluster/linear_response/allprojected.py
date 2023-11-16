@@ -140,32 +140,14 @@ class LinearResponseUCC(LinearResponseBaseClass):
                 self.Sigma[i, j] = self.Sigma[j, i] = expectation_value_hybrid_flow(
                     self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
                 )
-                # Make A sanity
-                val = expectation_value_hybrid_flow_double_commutator(
-                    self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector
-                )
-                val += expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qI.dagger, qJ, H_2i_2a], self.wf.state_vector
-                )
-                val -= expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qJ, qI.dagger, H_2i_2a], self.wf.state_vector
-                )
-                val += expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qJ, qI.dagger, H_2i_2a], self.wf.state_vector
-                )
-                val -= expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qJ, H_2i_2a, qI.dagger], self.wf.state_vector
-                )
-                val -= expectation_value_hybrid_flow(
-                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
-                ) * expectation_value_hybrid_flow(self.wf.state_vector, [H_2i_2a], self.wf.state_vector)
-                A_sanity[i, j] = A_sanity[j, i] = val
+                # Make A naive
+                A_sanity[i, j] = A_sanity[j, i] = expectation_value_hybrid_flow_double_commutator(self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector)
+        print("")
+        print("Naive expectation value")
+        print(A_sanity)
         print("")
         print("Expectation value")
         print(self.A[: len(self.q_ops), : len(self.q_ops)])
-        print("")
-        print("Sanity check")
-        print(A_sanity)
         print("")
         print("RDM")
         print(A_orb)
