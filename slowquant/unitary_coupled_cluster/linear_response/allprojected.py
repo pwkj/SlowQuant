@@ -97,8 +97,8 @@ class LinearResponseUCC(LinearResponseBaseClass):
         # Do orbital-orbital blocks
         A_orb = get_projected_orbital_response_hessian_block(
             rdms,
-            self.wf.h_mo,
-            np.zeros_like(self.wf.g_mo),  # self.wf.g_mo,
+            np.zeros_like(self.wf.h_mo),  # self.wf.h_mo,
+            self.wf.g_mo,
             self.wf.kappa_idx_dagger,
             self.wf.kappa_idx,
             self.wf.num_inactive_orbs,
@@ -109,8 +109,8 @@ class LinearResponseUCC(LinearResponseBaseClass):
         )
         H_2i_2a = convert_pauli_to_hybrid_form(
             hamiltonian_pauli_2i_2a(
-                self.wf.h_ao,
-                np.zeros_like(self.wf.g_ao),  # self.wf.g_ao
+                np.zeros_like(self.wf.h_ao),  # self.wf.h_ao,
+                self.wf.g_ao,
                 self.wf.c_trans,
                 self.wf.num_inactive_spin_orbs,
                 self.wf.num_active_spin_orbs,
@@ -127,13 +127,21 @@ class LinearResponseUCC(LinearResponseBaseClass):
             for i, opI in enumerate(self.q_ops):
                 qI = opI.operator
                 # Make A
-                val = expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, H_2i_2a, qJ], self.wf.state_vector)
-                val -= expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector) * expectation_value_hybrid_flow(self.wf.state_vector, [H_2i_2a], self.wf.state_vector)
+                val = expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, H_2i_2a, qJ], self.wf.state_vector
+                )
+                val -= expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
+                ) * expectation_value_hybrid_flow(self.wf.state_vector, [H_2i_2a], self.wf.state_vector)
                 self.A[i, j] = val
                 # Make Sigma
-                self.Sigma[i, j] = expectation_value_hybrid_flow(self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector)
+                self.Sigma[i, j] = expectation_value_hybrid_flow(
+                    self.wf.state_vector, [qI.dagger, qJ], self.wf.state_vector
+                )
                 # Make A naive
-                A_sanity[i, j] = expectation_value_hybrid_flow_double_commutator(self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector)
+                A_sanity[i, j] = expectation_value_hybrid_flow_double_commutator(
+                    self.wf.state_vector, qI.dagger, H_2i_2a, qJ, self.wf.state_vector
+                )
         print("")
         print("Naive expectation value")
         with np.printoptions(precision=3, suppress=True):
@@ -142,6 +150,9 @@ class LinearResponseUCC(LinearResponseBaseClass):
         print("Expectation value")
         with np.printoptions(precision=3, suppress=True):
             print(self.A[: len(self.q_ops), : len(self.q_ops)])
+        print("")
+        print("Difference Naive vs Proj")
+        print(self.A[: len(self.q_ops), : len(self.q_ops)] - A_sanity)
         print("")
         print("RDM")
         with np.printoptions(precision=3, suppress=True):
