@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from qiskit import QuantumCircuit
 from qiskit.primitives import BaseEstimator, BaseSampler
 from qiskit.quantum_info import Pauli, SparsePauliOp
@@ -258,20 +259,21 @@ class QuantumInterface:
         observables = self.op_to_qbit(op)
         # The -2 is because only I and only Z operators have in principle always zero variance.
         n_p = len(observables.paulis) - 2
+        c = 2 ** (1 / 2) * scipy.special.erfinv(self.confidence)
         for pauli, coeff in zip(observables.paulis, observables.coeffs):
             p1_new = self._sampler_distribution_p1(pauli, run_parameters, 1000)
             p1 = p1_new
             n_tot = 1000
             sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
-            n = self.confidence**2 * n_p * sigma_p**2 / self.precision**2
+            n = c**2 * n_p * sigma_p**2 / self.precision**2
             n_shots = int(max(n / 2 - n_tot, 0))
             if n_shots != 0:
                 p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
                 p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
                 n_tot += n_shots
                 sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
-            while self.confidence * (n_p) ** (1 / 2) * sigma_p / (n_tot) ** (1 / 2) > self.precision:
-                n = max(self.confidence**2 * n_p * sigma_p**2 / self.precision**2, 1000)
+            while c * (n_p) ** (1 / 2) * sigma_p / (n_tot) ** (1 / 2) > self.precision:
+                n = max(c**2 * n_p * sigma_p**2 / self.precision**2, 1000)
                 n_shots = int(max(1.1 * n - n_tot, 0.1 * n))
                 p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
                 p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
