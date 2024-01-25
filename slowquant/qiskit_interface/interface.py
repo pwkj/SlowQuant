@@ -27,9 +27,9 @@ class QuantumInterface:
         primitive: BaseEstimator | BaseSampler,
         ansatz: str,
         mapper: FermionicMapper,
-        precision=1e-2,
-        confidence=0.7,
-        do_shot_balancing=True,
+        do_shot_balancing: bool = False,
+        precision: float = 1e-3,
+        confidence: float = 0.68,
     ) -> None:
         """
         Interface to Qiskit to use IBM quantum hardware or simulator.
@@ -38,6 +38,9 @@ class QuantumInterface:
             primitive: Qiskit Estimator or Sampler object
             ansatz: Name of qiskit ansatz to be used. Currenly supported: UCCSD, UCCD, and PUCCD
             mapper: Qiskit mapper object, e.g. JW or Parity
+            do_shot_balancing: Use shot balancing instead of a uniform number of shots when measuring the Pauli strings.
+            precision: Fermionic expectation value precision to target with shot balancing.
+            confidence: Confidence that wanted precision is reached with shot balancing.
         """
         allowed_ansatz = ("UCCSD", "PUCCD", "UCCD", "ErikD", "ErikSD", "HF")
         if ansatz not in allowed_ansatz:
@@ -242,6 +245,15 @@ class QuantumInterface:
     def _sampler_quantum_expectation_value_balanced(
         self, op: FermionicOperator, run_parameters: list[float]
     ) -> float:
+        """Calculate expectation value of circuit and observables via Sampler using shot balancing.
+
+        Args:
+            op: SlowQuant fermionic operator.
+            run_parameters: Circuit parameters.
+
+        Returns:
+            Expectation value of operator.
+        """
         values = 0.0
         observables = self.op_to_qbit(op)
         # The -2 is because only I and only Z operators have in principle always zero variance.
@@ -269,7 +281,17 @@ class QuantumInterface:
             print(pauli, n_tot, p1)
         return values.real
 
-    def _sampler_distribution_p1(self, pauli, run_parameters, shots) -> float:
+    def _sampler_distribution_p1(self, pauli: Pauli, run_parameters: list[float], shots: int) -> float:
+        """Sample the probability of measuring one for a given Pauli string.
+
+        Args:
+            pauli: Pauli string.
+            run_paramters: Ansatz parameters.
+            shots: Number of shots.
+
+        Returns:
+            p1 probability.
+        """
         # Create QuantumCircuit
         ansatz_w_obs = self.circuit.compose(to_CBS_measurement(pauli))
         ansatz_w_obs.measure_all()
