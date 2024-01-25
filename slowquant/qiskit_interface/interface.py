@@ -1,3 +1,4 @@
+import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.primitives import BaseEstimator, BaseSampler
 from qiskit.quantum_info import Pauli, SparsePauliOp
@@ -26,6 +27,9 @@ class QuantumInterface:
         primitive: BaseEstimator | BaseSampler,
         ansatz: str,
         mapper: FermionicMapper,
+        precision=1e-2,
+        confidence=0.7,
+        do_shot_balancing=True,
     ) -> None:
         """
         Interface to Qiskit to use IBM quantum hardware or simulator.
@@ -35,12 +39,15 @@ class QuantumInterface:
             ansatz: Name of qiskit ansatz to be used. Currenly supported: UCCSD, UCCD, and PUCCD
             mapper: Qiskit mapper object, e.g. JW or Parity
         """
-        allowed_ansatz = ["UCCSD", "PUCCD", "UCCD", "ErikD", "ErikSD"]
-        if not ansatz in allowed_ansatz:
+        allowed_ansatz = ("UCCSD", "PUCCD", "UCCD", "ErikD", "ErikSD", "HF")
+        if ansatz not in allowed_ansatz:
             raise ValueError("The chosen Ansatz is not availbale. Choose from: ", allowed_ansatz)
         self.ansatz = ansatz
         self.primitive = primitive
         self.mapper = mapper
+        self.precision = precision
+        self.confidence = confidence
+        self.do_shot_balancing = do_shot_balancing
 
     def construct_circuit(self, num_orbs: int, num_parts: int) -> None:
         """
@@ -106,6 +113,8 @@ class QuantumInterface:
                 self.circuit = ErikSD_Parity()
             else:
                 raise ValueError(f"Unsupported mapper, {type(self.mapper)}, for ansatz {self.ansatz}")
+        elif self.ansatz == "HF":
+            self.circuit = HartreeFock(num_orbs, (num_parts // 2, num_parts // 2), self.mapper)
 
         # Set parameter to HarteeFock
         self._parameters = [0.0] * self.circuit.num_parameters
@@ -165,7 +174,10 @@ class QuantumInterface:
         if isinstance(self.primitive, BaseEstimator):
             return self._estimator_quantum_expectation_value(op, run_parameters)
         elif isinstance(self.primitive, BaseSampler):
-            return self._sampler_quantum_expectation_value(op, run_parameters)
+            if self.do_shot_balancing:
+                return self._sampler_quantum_expectation_value_balanced(op, run_parameters)
+            else:
+                return self._sampler_quantum_expectation_value(op, run_parameters)
         else:
             raise ValueError(
                 "The Quantum Interface was initiated with an unknown Qiskit primitive, {type(self.primitive)}"
@@ -226,6 +238,56 @@ class QuantumInterface:
                 print("Warning: Complex number detected with Im = ", values.imag)
 
         return values.real
+
+    def _sampler_quantum_expectation_value_balanced(
+        self, op: FermionicOperator, run_parameters: list[float]
+    ) -> float:
+        values = 0.0
+        observables = self.op_to_qbit(op)
+        # The -2 is because only I and only Z operators have in principle always zero variance.
+        n_p = len(observables.paulis) - 2
+        for pauli, coeff in zip(observables.paulis, observables.coeffs):
+            p1_new = self._sampler_distribution_p1(pauli, run_parameters, 1000)
+            p1 = p1_new
+            n_tot = 1000
+            sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
+            n = self.confidence**2 * n_p * sigma_p**2 / self.precision**2
+            n_shots = int(max(n / 2 - n_tot, 0))
+            if n_shots != 0:
+                p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
+                p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
+                n_tot += n_shots
+                sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
+            while self.confidence * (n_p) ** (1 / 2) * sigma_p / (n_tot) ** (1 / 2) > self.precision:
+                n = max(self.confidence**2 * n_p * sigma_p**2 / self.precision**2, 1000)
+                n_shots = int(max(1.1 * n - n_tot, 0.1 * n))
+                p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
+                p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
+                n_tot += n_shots
+                sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
+            values += 2 * coeff * p1 - coeff
+            print(pauli, n_tot, p1)
+        return values.real
+
+    def _sampler_distribution_p1(self, pauli, run_parameters, shots) -> float:
+        # Create QuantumCircuit
+        ansatz_w_obs = self.circuit.compose(to_CBS_measurement(pauli))
+        ansatz_w_obs.measure_all()
+
+        # Run sampler
+        self.primitive.set_options(shots=shots)
+        job = self.primitive.run(ansatz_w_obs, parameter_values=run_parameters)
+
+        # Get quasi-distribution in binary probabilities
+        distr = job.result().quasi_dists[0].binary_probabilities()
+
+        p1 = 0.0
+        for key, value in distr.items():
+            # Here we could check if we want a given key (bitstring) in the result distribution
+            if get_bitstring_sign(pauli, key) == 1:
+                p1 += value
+        # should prob. also return actual number of shots used, if this information is returned from device
+        return p1
 
     def _sampler_distributions(self, pauli: Pauli, run_parameters: list[float]) -> float:
         """Get results from a sampler distribution for one given Pauli string.
