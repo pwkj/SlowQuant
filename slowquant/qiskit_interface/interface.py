@@ -52,6 +52,7 @@ class QuantumInterface:
         self.precision = precision
         self.confidence = confidence
         self.do_shot_balancing = do_shot_balancing
+        self.total_shots_used = 0
 
     def construct_circuit(self, num_orbs: int, num_parts: int) -> None:
         """
@@ -258,7 +259,8 @@ class QuantumInterface:
         values = 0.0
         observables = self.op_to_qbit(op)
         # The -2 is because only I and only Z operators have in principle always zero variance.
-        n_p = len(observables.paulis) - 2
+        #n_p = len(observables.paulis) - 2
+        n_p = len(observables.paulis)
         c = 2 ** (1 / 2) * scipy.special.erfinv(self.confidence)
         for pauli, coeff in zip(observables.paulis, observables.coeffs):
             p1_new = self._sampler_distribution_p1(pauli, run_parameters, 1000)
@@ -274,13 +276,12 @@ class QuantumInterface:
                 sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
             while c * (n_p) ** (1 / 2) * sigma_p / (n_tot) ** (1 / 2) > self.precision:
                 n = max(c**2 * n_p * sigma_p**2 / self.precision**2, 1000)
-                n_shots = int(max(1.1 * n - n_tot, 0.1 * n))
+                n_shots = int(max(0.5*n - n_tot, 0.1*n))
                 p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
                 p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
                 n_tot += n_shots
                 sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
             values += 2 * coeff * p1 - coeff
-            print(pauli, n_tot, p1)
         return values.real
 
     def _sampler_distribution_p1(self, pauli: Pauli, run_parameters: list[float], shots: int) -> float:
@@ -301,6 +302,7 @@ class QuantumInterface:
         # Run sampler
         self.primitive.set_options(shots=shots)
         job = self.primitive.run(ansatz_w_obs, parameter_values=run_parameters)
+        self.total_shots_used += self.primitive.options.shots
 
         # Get quasi-distribution in binary probabilities
         distr = job.result().quasi_dists[0].binary_probabilities()
@@ -336,6 +338,7 @@ class QuantumInterface:
 
         # Run sampler
         job = self.primitive.run(ansatz_w_obs, parameter_values=run_parameters)
+        self.total_shots_used += self.primitive.options.shots
 
         # Get quasi-distribution in binary probabilities
         distr = job.result().quasi_dists[0].binary_probabilities()
