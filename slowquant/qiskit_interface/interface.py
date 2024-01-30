@@ -53,6 +53,7 @@ class QuantumInterface:
         self.confidence = confidence
         self.do_shot_balancing = do_shot_balancing
         self.total_shots_used = 0
+        self.total_device_calls = 0
 
     def construct_circuit(self, num_orbs: int, num_parts: int) -> None:
         """
@@ -145,8 +146,7 @@ class QuantumInterface:
         """
         if len(parameters) != self.circuit.num_parameters:
             raise ValueError(
-                "The length of the parameter list does not fit the chosen circuit for the Ansatz ",
-                self.ansatz,
+                f"The length of the parameter list, {len(parameters)} does not fit the number of ansatz parameters, {self.circuit.num_parameters}"
             )
         self._parameters = parameters.copy()
 
@@ -205,6 +205,7 @@ class QuantumInterface:
             parameter_values=run_parameters,
             observables=self.op_to_qbit(op),
         )
+        self.total_device_calls += 1
         result = job.result()
         values = result.values[0]
 
@@ -233,7 +234,6 @@ class QuantumInterface:
         """
         values = 0.0
         observables = self.op_to_qbit(op)
-
         # Loop over all qubit-mapped Paul strings and get Sampler distributions
         for pauli, coeff in zip(observables.paulis, observables.coeffs):
             values += self._sampler_distributions(pauli, run_parameters) * coeff
@@ -258,29 +258,30 @@ class QuantumInterface:
         """
         values = 0.0
         observables = self.op_to_qbit(op)
-        # The -2 is because only I and only Z operators have in principle always zero variance.
-        #n_p = len(observables.paulis) - 2
-        n_p = len(observables.paulis)
+        # The -1 is because only I always have zero variance.
+        # Could maybe be -2 because only Z operators always have zero variance, for post-procesed bitstrings.
+        n_p = len(observables.paulis) - 1
         c = 2 ** (1 / 2) * scipy.special.erfinv(self.confidence)
+
         for pauli, coeff in zip(observables.paulis, observables.coeffs):
             p1_new = self._sampler_distribution_p1(pauli, run_parameters, 1000)
             p1 = p1_new
             n_tot = 1000
-            sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
+            sigma_p = 2 * np.abs(coeff.real) * (p1 - p1**2) ** (1 / 2)
             n = c**2 * n_p * sigma_p**2 / self.precision**2
             n_shots = int(max(n / 2 - n_tot, 0))
             if n_shots != 0:
                 p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
                 p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
                 n_tot += n_shots
-                sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
+                sigma_p = 2 * np.abs(coeff.real) * (p1 - p1**2) ** (1 / 2)
             while c * (n_p) ** (1 / 2) * sigma_p / (n_tot) ** (1 / 2) > self.precision:
                 n = max(c**2 * n_p * sigma_p**2 / self.precision**2, 1000)
-                n_shots = int(max(0.5*n - n_tot, 0.1*n))
+                n_shots = int(max(0.8 * n - n_tot, 0.1 * n))
                 p1_new = self._sampler_distribution_p1(pauli, run_parameters, n_shots)
                 p1 = (n_tot * p1 + p1_new * n_shots) / (n_tot + n_shots)
                 n_tot += n_shots
-                sigma_p = 2 * np.abs(coeff) * (p1 - p1**2) ** (1 / 2)
+                sigma_p = 2 * np.abs(coeff.real) * (p1 - p1**2) ** (1 / 2)
             values += 2 * coeff * p1 - coeff
         return values.real
 
@@ -303,6 +304,7 @@ class QuantumInterface:
         self.primitive.set_options(shots=shots)
         job = self.primitive.run(ansatz_w_obs, parameter_values=run_parameters)
         self.total_shots_used += self.primitive.options.shots
+        self.total_device_calls += 1
 
         # Get quasi-distribution in binary probabilities
         distr = job.result().quasi_dists[0].binary_probabilities()
@@ -338,7 +340,9 @@ class QuantumInterface:
 
         # Run sampler
         job = self.primitive.run(ansatz_w_obs, parameter_values=run_parameters)
-        self.total_shots_used += self.primitive.options.shots
+        self.total_device_calls += 1
+        if "shots" in self.primitive.options:
+            self.total_shots_used += self.primitive.options.shots
 
         # Get quasi-distribution in binary probabilities
         distr = job.result().quasi_dists[0].binary_probabilities()
