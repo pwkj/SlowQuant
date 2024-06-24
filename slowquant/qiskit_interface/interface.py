@@ -39,8 +39,8 @@ class QuantumInterface:
     def __init__(  # pylint: disable=dangerous-default-value
         self,
         primitive: BaseEstimator | BaseSampler,
-        ansatz: str,
         mapper: FermionicMapper,
+        ansatz: None | str = None,
         ISA: bool = False,
         ansatz_options: dict[str, Any] = {},
         shots: None | int = None,
@@ -49,6 +49,7 @@ class QuantumInterface:
         do_M_iqa: bool = False,
         do_M_ansatz0: bool = False,
         do_postselection: bool = True,
+        custom_ansatz: None | QuantumCircuit = None
     ) -> None:
         """Interface to Qiskit to use IBM quantum hardware or simulator.
 
@@ -66,10 +67,11 @@ class QuantumInterface:
             do_M_ansatz0: Use the ansatz with theta=0 when constructing the read-out correlation matrix.
             do_postselection: Use postselection to preserve number of particles in the computational basis.
         """
-        allowed_ansatz = ("UCCSD", "PUCCD", "UCCD", "ErikD", "ErikSD", "HF", "tUPS")
+        allowed_ansatz = ("UCCSD", "PUCCD", "UCCD", "ErikD", "ErikSD", "HF", "tUPS", "custom")
         if ansatz not in allowed_ansatz:
             raise ValueError("The chosen Ansatz is not available. Choose from: ", allowed_ansatz)
         self.ansatz = ansatz
+        self._custom_ansatz = custom_ansatz
         self._primitive = primitive
         self.mapper = mapper
         self.ISA = ISA
@@ -170,6 +172,10 @@ class QuantumInterface:
             self.circuit = HartreeFock(num_orbs, self.num_elec, self.mapper)
         elif self.ansatz == "tUPS":
             self.circuit, self.grad_param_R = tUPS(num_orbs, self.num_elec, self.mapper, self.ansatz_options)
+        elif self.ansatz == "custom":
+            if self._custom_ansatz is None:
+                raise ValueError("custom_ansatz is None, expected Qiskit circuit")
+            self.circuit = self._custom_ansatz
 
         # Check that R parameter for gradient is consistent with the paramter names.
         if len(self.grad_param_R) == 0:
@@ -534,9 +540,13 @@ class QuantumInterface:
             # Simulate each clique head with one combined device call
             # and return a list of distributions
             distr = self._one_call_sampler_distributions(new_heads, self.parameters, self.circuit)
+            #print(self.parameters)
+            print(distr)
             if self.do_M_mitigation:  # apply error mitigation if requested
                 for i, dist in enumerate(distr):
+                    print(self._Minv)
                     distr[i] = correct_distribution(dist, self._Minv)
+                    print(distr)
             if self.do_postselection:
                 for i, (dist, head) in enumerate(zip(distr, new_heads)):
                     if "X" not in head and "Y" not in head:
@@ -960,6 +970,7 @@ class QuantumInterface:
             ansatz = self.circuit
             # Negate the Hartree-Fock State
             ansatz = ansatz.compose(HartreeFock(self.num_orbs, self.num_elec, self.mapper))
+            #print(ansatz)
         else:
             ansatz = QuantumCircuit(self.num_qubits)
         M = np.zeros((2**self.num_qubits, 2**self.num_qubits))
@@ -1004,9 +1015,18 @@ class QuantumInterface:
                 [[10**-8] * len(ansatz.parameters)] * len(ansatz_list),
                 ansatz_list,
             )
+            
+            print(ansatz)
+            print(ansatz.parameters)
+            print(ansatz.num_qubits)
+            print(ansatz.data)
+            #print("see here",[[10**-8] * len(ansatz.parameters)] * len(ansatz_list))
             # Construct M
             for idx2, Px in enumerate(Px_list):
                 for bitstring, prob in Px.items():
                     idx1 = int(bitstring[::-1], 2)
                     M[idx1, idx2] = prob
+        #import sys
+        #np.set_printoptions(threshold=sys.maxsize)
+        #print("see here",M)
         self._Minv = np.linalg.inv(M)
