@@ -9,18 +9,11 @@ from qiskit.compiler import transpile
 from qiskit.primitives import BaseEstimator, BaseSampler
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_nature.second_q.circuit.library import PUCCD, UCC, UCCSD, HartreeFock
-from qiskit_nature.second_q.mappers import JordanWignerMapper, ParityMapper
 from qiskit_nature.second_q.mappers.fermionic_mapper import FermionicMapper
 from qiskit_nature.second_q.operators import FermionicOp
 
 from slowquant.qiskit_interface.base import FermionicOperator
-from slowquant.qiskit_interface.custom_ansatz import (
-    ErikD_JW,
-    ErikD_Parity,
-    ErikSD_JW,
-    ErikSD_Parity,
-    tUPS,
-)
+from slowquant.qiskit_interface.custom_ansatz import fUCCSD, tUPS
 from slowquant.qiskit_interface.util import (
     Clique,
     correct_distribution,
@@ -67,7 +60,7 @@ class QuantumInterface:
             do_M_ansatz0: Use the ansatz with theta=0 when constructing the read-out correlation matrix.
             do_postselection: Use postselection to preserve number of particles in the computational basis.
         """
-        allowed_ansatz = ("UCCSD", "PUCCD", "UCCD", "ErikD", "ErikSD", "HF", "tUPS", "custom")
+        allowed_ansatz = ("tUCCSD", "tPUCCD", "tUCCD", "tUPS", "fUCCSD", "custom")
         if ansatz not in allowed_ansatz:
             raise ValueError("The chosen Ansatz is not available. Choose from: ", allowed_ansatz)
         self.ansatz = ansatz
@@ -104,9 +97,9 @@ class QuantumInterface:
             {}
         )  # Contains information about the parameterization needed for gradient evaluations.
 
-        if self.ansatz == "UCCSD":
+        if self.ansatz == "tUCCSD":
             if len(self.ansatz_options) != 0:
-                raise ValueError(f"No options available for UCCSD got {self.ansatz_options}")
+                raise ValueError(f"No options available for tUCCSD got {self.ansatz_options}")
             self.circuit = UCCSD(
                 num_orbs,
                 self.num_elec,
@@ -117,9 +110,9 @@ class QuantumInterface:
                     self.mapper,
                 ),
             )
-        elif self.ansatz == "PUCCD":
+        elif self.ansatz == "tPUCCD":
             if len(self.ansatz_options) != 0:
-                raise ValueError(f"No options available for PUCCD got {self.ansatz_options}")
+                raise ValueError(f"No options available for tPUCCD got {self.ansatz_options}")
             self.circuit = PUCCD(
                 num_orbs,
                 self.num_elec,
@@ -130,9 +123,9 @@ class QuantumInterface:
                     self.mapper,
                 ),
             )
-        elif self.ansatz == "UCCD":
+        elif self.ansatz == "tUCCD":
             if len(self.ansatz_options) != 0:
-                raise ValueError(f"No options available for UCCD got {self.ansatz_options}")
+                raise ValueError(f"No options available for tUCCD got {self.ansatz_options}")
             self.circuit = UCC(
                 num_orbs,
                 self.num_elec,
@@ -144,34 +137,14 @@ class QuantumInterface:
                     self.mapper,
                 ),
             )
-        elif self.ansatz == "ErikD":
-            if len(self.ansatz_options) != 0:
-                raise ValueError(f"No options available for ErikD got {self.ansatz_options}")
-            if num_orbs != 2 or self.num_elec != (1, 1):
-                raise ValueError(f"Chosen ansatz, {self.ansatz}, only works for (2,2)")
-            if isinstance(self.mapper, JordanWignerMapper):
-                self.circuit = ErikD_JW()
-            elif isinstance(self.mapper, ParityMapper):
-                self.circuit = ErikD_Parity()
-            else:
-                raise ValueError(f"Unsupported mapper, {type(self.mapper)}, for ansatz {self.ansatz}")
-        elif self.ansatz == "ErikSD":
-            if len(self.ansatz_options) != 0:
-                raise ValueError(f"No options available for ErikSD got {self.ansatz_options}")
-            if num_orbs != 2 or self.num_elec != (1, 1):
-                raise ValueError(f"Chosen ansatz, {self.ansatz}, only works for (2,2)")
-            if isinstance(self.mapper, JordanWignerMapper):
-                self.circuit = ErikSD_JW()
-            elif isinstance(self.mapper, ParityMapper):
-                self.circuit = ErikSD_Parity()
-            else:
-                raise ValueError(f"Unsupported mapper, {type(self.mapper)}, for ansatz {self.ansatz}")
         elif self.ansatz == "HF":
             if len(self.ansatz_options) != 0:
                 raise ValueError(f"No options available for HF got {self.ansatz_options}")
             self.circuit = HartreeFock(num_orbs, self.num_elec, self.mapper)
         elif self.ansatz == "tUPS":
             self.circuit, self.grad_param_R = tUPS(num_orbs, self.num_elec, self.mapper, self.ansatz_options)
+        elif self.ansatz == "fUCCSD":
+            self.circuit, self.grad_param_R = fUCCSD(num_orbs, self.num_elec, self.mapper)
         elif self.ansatz == "custom":
             if self._custom_ansatz is None:
                 raise ValueError("custom_ansatz is None, expected Qiskit circuit")
@@ -286,6 +259,7 @@ class QuantumInterface:
             # The distributions should only reset if the parameters are actually changed.
             if not np.array_equal(self._parameters, parameters):
                 self.cliques = Clique()
+                self.cliques_raw = Clique()
         self._parameters = parameters.copy()
 
     @property
@@ -411,6 +385,7 @@ class QuantumInterface:
     def _reset_cliques(self) -> None:
         """Reset cliques to empty."""
         self.cliques = Clique()
+        self.cliques_raw = Clique()
 
     def null_shots(self) -> None:
         """Set number of shots to None."""
@@ -497,7 +472,9 @@ class QuantumInterface:
 
         return values.real
 
-    def _sampler_quantum_expectation_value(self, op: FermionicOperator | SparsePauliOp) -> float:
+    def _sampler_quantum_expectation_value(
+        self, op: FermionicOperator | SparsePauliOp, do_raw: bool = False
+    ) -> float:
         r"""Calculate expectation value of circuit and observables via Sampler.
 
         Calculated Pauli expectation values will be saved in memory.
@@ -528,9 +505,11 @@ class QuantumInterface:
 
         if not hasattr(self, "cliques"):
             self.cliques = Clique()
+            self.cliques_raw = Clique()
 
         paulis_str = [str(x) for x in observables.paulis]
         new_heads = self.cliques.add_paulis(paulis_str)
+        new_heads = self.cliques_raw.add_paulis(paulis_str)
 
         # Check if error mitigation is requested and if read-out matrix already exists.
         if self.do_M_mitigation and self._Minv is None:
@@ -540,8 +519,7 @@ class QuantumInterface:
             # Simulate each clique head with one combined device call
             # and return a list of distributions
             distr = self._one_call_sampler_distributions(new_heads, self.parameters, self.circuit)
-            #print(self.parameters)
-            print(distr)
+            self.cliques_raw.update_distr(new_heads, copy.deepcopy(distr))
             if self.do_M_mitigation:  # apply error mitigation if requested
                 for i, dist in enumerate(distr):
                     print(self._Minv)
@@ -556,8 +534,16 @@ class QuantumInterface:
         # Loop over all Pauli strings in observable and build final result with coefficients
         for pauli, coeff in zip(paulis_str, observables.coeffs):
             result = 0.0
-            for key, value in self.cliques.get_distr(pauli).items():  # build result from quasi-distribution
-                result += value * get_bitstring_sign(pauli, key)
+            if do_raw:
+                for key, value in self.cliques_raw.get_distr(
+                    pauli
+                ).items():  # build result from quasi-distribution
+                    result += value * get_bitstring_sign(pauli, key)
+            else:
+                for key, value in self.cliques.get_distr(
+                    pauli
+                ).items():  # build result from quasi-distribution
+                    result += value * get_bitstring_sign(pauli, key)
             values += result * coeff
 
         if isinstance(values, complex):
@@ -731,10 +717,10 @@ class QuantumInterface:
             else:
                 p1 = self._sampler_distribution_p1(pauli, run_parameters)
             if self.shots is None:
-                sigma_p = 2 * np.abs(coeff.real) * ((p1 - p1**2) ** (1 / 2))
+                var_p = 4 * np.abs(coeff.real) ** 2 * np.abs(p1 - p1**2)
             else:
-                sigma_p = 2 * np.abs(coeff.real) * ((p1 - p1**2) ** (1 / 2)) / (self.shots ** (1 / 2))
-            result += sigma_p**2
+                var_p = 4 * np.abs(coeff.real) ** 2 * np.abs(p1 - p1**2) / (self.shots)
+            result += var_p
         return result
 
     def _one_call_sampler_distributions(
