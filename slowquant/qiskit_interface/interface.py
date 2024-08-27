@@ -313,6 +313,7 @@ class QuantumInterface:
             # The distributions should only reset if the parameters are actually changed.
             if not np.array_equal(self._parameters, parameters):
                 self.cliques = Clique()
+                self.cliques_raw = Clique()
         self._parameters = parameters.copy()
 
     @property
@@ -463,6 +464,7 @@ class QuantumInterface:
     def _reset_cliques(self, verbose: bool = True) -> None:
         """Reset cliques to empty."""
         self.cliques = Clique()
+        self.cliques_raw = Clique()
         if verbose:
             print("Pauli saving has been reset.")
 
@@ -549,7 +551,9 @@ class QuantumInterface:
 
         return values.real
 
-    def _sampler_quantum_expectation_value(self, op: FermionicOperator | SparsePauliOp) -> float:
+    def _sampler_quantum_expectation_value(
+        self, op: FermionicOperator | SparsePauliOp, do_raw: bool = False
+    ) -> float:
         r"""Calculate expectation value of circuit and observables via Sampler.
 
         Calculated Pauli expectation values will be saved in memory.
@@ -580,9 +584,11 @@ class QuantumInterface:
 
         if not hasattr(self, "cliques"):
             self.cliques = Clique()
+            self.cliques_raw = Clique()
 
         paulis_str = [str(x) for x in observables.paulis]
         new_heads = self.cliques.add_paulis(paulis_str)
+        new_heads = self.cliques_raw.add_paulis(paulis_str)
 
         # Check if error mitigation is requested and if read-out matrix already exists.
         if self.do_M_mitigation and self._Minv is None:
@@ -592,6 +598,7 @@ class QuantumInterface:
             # Simulate each clique head with one combined device call
             # and return a list of distributions
             distr = self._one_call_sampler_distributions(new_heads, self.parameters, self.circuit)
+            self.cliques_raw.update_distr(new_heads, copy.deepcopy(distr))
             if self.do_M_mitigation:  # apply error mitigation if requested
                 for i, dist in enumerate(distr):
                     distr[i] = correct_distribution(dist, self._Minv)
@@ -604,8 +611,16 @@ class QuantumInterface:
         # Loop over all Pauli strings in observable and build final result with coefficients
         for pauli, coeff in zip(paulis_str, observables.coeffs):
             result = 0.0
-            for key, value in self.cliques.get_distr(pauli).items():  # build result from quasi-distribution
-                result += value * get_bitstring_sign(pauli, key)
+            if do_raw:
+                for key, value in self.cliques_raw.get_distr(
+                    pauli
+                ).items():  # build result from quasi-distribution
+                    result += value * get_bitstring_sign(pauli, key)
+            else:
+                for key, value in self.cliques.get_distr(
+                    pauli
+                ).items():  # build result from quasi-distribution
+                    result += value * get_bitstring_sign(pauli, key)
             values += result * coeff
 
         if isinstance(values, complex):
