@@ -94,6 +94,10 @@ def do_extended_normal_ordering(
     new_operators = {}
     new_factors = {}
     for key in fermistring.operators:
+        if len(key) <= 2:
+            new_operators[key] = []
+            new_factors[key] = fermistring.factors[key]
+            continue
         operator_queue.append(fermistring.operators[key])
         factor_queue.append(fermistring.factors[key])
     while len(operator_queue) > 0:
@@ -258,6 +262,8 @@ class FermionicOperator:
                     )
                 )
                 for str_key in new_ops:  # pylint: disable=C0206
+                    if abs(new_facs[str_key]) < 10**-14:
+                        continue
                     if str_key not in operators.keys():  # pylint: disable=C0201
                         operators[str_key] = new_ops[str_key]
                         factors[str_key] = new_facs[str_key]
