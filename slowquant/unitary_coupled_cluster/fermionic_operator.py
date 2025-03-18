@@ -165,7 +165,7 @@ def do_extended_normal_ordering(
 
 
 class FermionicOperator:
-    __slots__ = ("operators", "factors")
+    __slots__ = ("operators", "factors", "_ab_operators", "_ab_factors")
 
     def __init__(
         self, annihilation_operator: dict[str, list[a_op]] | a_op, factor: dict[str, float] | float
@@ -197,6 +197,8 @@ class FermionicOperator:
             raise ValueError(
                 f"Could not assign operator of {type(annihilation_operator)} with factor of {type(factor)}"
             )
+        self._ab_operators = None
+        self._ab_factors = None
 
     def __add__(self, fermistring: FermionicOperator) -> FermionicOperator:
         """Addition of two fermionic operators.
@@ -482,3 +484,50 @@ class FermionicOperator:
             creation.append(c)
             annihilation.append(a)
         return annihilation, creation, coefficients
+
+    def _make_ab_strings(self) -> None:
+        r"""Make alpha-beta sorted operator.
+
+        The operator will be sorted such that it works on ket like the following,
+
+        .. math::
+            \hat{O}_\beta\hat{}_\alpha\left|\text{ket}\right>
+        """
+        self._ab_operators = {}
+        self._ab_factors = {}
+        alpha_counter = 0
+        for string_key in self.operators.keys():
+            alpha_op = []
+            beta_op = []
+            factor = 1
+            for op in self.operators[string_key]:
+                if op.spin == "alpha":
+                    alpha_op.append(op)
+                    alpha_counter += 1
+                else:
+                    beta_op.append(op)
+                    factor *= (-1) ** (alpha_counter % 2)
+            self._ab_operators[string_key] = (beta_op, alpha_op)
+            self._ab_factors[string_key] = self.factors[string_key] * factor
+
+    @property
+    def ab_operators(self) -> dict[str, tuple[list[a_op], list[a_op]]]:
+        """Get alpha-beta sorted operators.
+
+        Returns:
+            beta operator, alpha operator.
+        """
+        if self._ab_operators is None:
+            self._make_ab_strings()
+        return self._ab_operators
+
+    @property
+    def ab_factors(self) -> dict[str, float]:
+        """Get alpha beta sorted operator factor.
+
+        Returns:
+            alphe beta sorted factor.
+        """
+        if self._ab_factors is None:
+            self._make_ab_strings()
+        return self._ab_factors
