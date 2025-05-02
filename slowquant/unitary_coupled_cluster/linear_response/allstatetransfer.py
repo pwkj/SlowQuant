@@ -5,15 +5,15 @@ import numpy as np
 from slowquant.molecularintegrals.integralfunctions import (
     one_electron_integral_transform,
 )
+from slowquant.unitary_coupled_cluster.ci_spaces import (
+    CI_Info,
+    get_indexing_extended,
+)
 from slowquant.unitary_coupled_cluster.fermionic_operator import FermionicOperator
 from slowquant.unitary_coupled_cluster.linear_response.lr_baseclass import (
     LinearResponseBaseClass,
 )
-from slowquant.unitary_coupled_cluster.operator_extended import (
-    get_indexing_extended,
-)
-from slowquant.unitary_coupled_cluster.operator_matrix import (
-    CI_Info,
+from slowquant.unitary_coupled_cluster.operator_state_algebra import (
     expectation_value,
     propagate_state,
 )
@@ -131,7 +131,7 @@ class LinearResponseUCC(LinearResponseBaseClass):
                 ["Ud", H_2i_2a, "U", qJ],
                 self.csf_coeffs,
                 *self.index_info_extended,
-                unsafe=True,
+                do_unsafe=True,  # type: ignore
             )
             for i, qI in enumerate(self.q_ops[j:], j):
                 # Make A
@@ -230,42 +230,42 @@ class LinearResponseUCC(LinearResponseBaseClass):
                     [mux_op_q, "U", q],
                     self.csf_coeffs,
                     *self.index_info_extended,
-                    unsafe=True,
+                    do_unsafe=True,  # type: ignore
                 )
                 q_part_x += self.Y_q_normed[i, state_number] * expectation_value(
                     self.csf_coeffs,
                     [q.dagger, "Ud", mux_op_q],
                     self.ci_coeffs,
                     *self.index_info_extended,
-                    unsafe=True,
+                    do_unsafe=True,  # type: ignore
                 )
                 q_part_y -= self.Z_q_normed[i, state_number] * expectation_value(
                     self.ci_coeffs,
                     [muy_op_q, "U", q],
                     self.csf_coeffs,
                     *self.index_info_extended,
-                    unsafe=True,
+                    do_unsafe=True,  # type: ignore
                 )
                 q_part_y += self.Y_q_normed[i, state_number] * expectation_value(
                     self.csf_coeffs,
                     [q.dagger, "Ud", muy_op_q],
                     self.ci_coeffs,
                     *self.index_info_extended,
-                    unsafe=True,
+                    do_unsafe=True,  # type: ignore
                 )
                 q_part_z -= self.Z_q_normed[i, state_number] * expectation_value(
                     self.ci_coeffs,
                     [muz_op_q, "U", q],
                     self.csf_coeffs,
                     *self.index_info_extended,
-                    unsafe=True,
+                    do_unsafe=True,  # type: ignore
                 )
                 q_part_z += self.Y_q_normed[i, state_number] * expectation_value(
                     self.csf_coeffs,
                     [q.dagger, "Ud", muz_op_q],
                     self.ci_coeffs,
                     *self.index_info_extended,
-                    unsafe=True,
+                    do_unsafe=True,  # type: ignore
                 )
             g_part_x = 0.0
             g_part_y = 0.0

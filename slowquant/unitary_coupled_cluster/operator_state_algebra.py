@@ -1,11 +1,10 @@
 from collections.abc import Generator, Sequence
-from dataclasses import dataclass
 
 import numba as nb
 import numpy as np
 import scipy.sparse as ss
-from sympy.utilities.iterables import multiset_permutations
 
+from slowquant.unitary_coupled_cluster.ci_spaces import CI_Info
 from slowquant.unitary_coupled_cluster.fermionic_operator import FermionicOperator
 from slowquant.unitary_coupled_cluster.operators import (
     G1,
@@ -19,97 +18,6 @@ from slowquant.unitary_coupled_cluster.operators import (
     G2_2_sa,
 )
 from slowquant.unitary_coupled_cluster.util import UccStructure, UpsStructure
-
-
-@dataclass(repr=False, eq=False, match_args=False)
-class CI_Info:
-    __slots__ = (
-        "num_inactive_orbs",
-        "num_active_orbs",
-        "num_virtual_orbs",
-        "num_active_elec_alpha",
-        "num_active_elec_beta",
-        "idx2det",
-        "det2idx",
-        "space_extension_offset",
-        "det2alphabeta",
-        "alphabeta2det",
-    )
-
-    def __init__(
-        self,
-        num_inactive_orbs: int,
-        num_active_orbs: int,
-        num_virtual_orbs: int,
-        num_active_elec_alpha: int,
-        num_active_elec_beta: int,
-        idx2det: np.ndarray,
-        det2idx: dict[int, int],
-    ) -> None:
-        """Initialize configuration expansion information object.
-
-        Args:
-            num_inactive_orbs: Number of inactive spatial orbitals.
-            num_active_orbs: Number of active spatial orbitals.
-            num_virtual_orbs: Number of virtual orbitals.
-            num_active_elec_alpha: Number of active alpha electrons.
-            num_active_elec_beta: Number of active beta electrons.
-            idx2det: Index to determinant mapping.
-            det2idx: Determinant to index mapping.
-        """
-        self.num_inactive_orbs = num_inactive_orbs
-        self.num_active_orbs = num_active_orbs
-        self.num_virtual_orbs = num_virtual_orbs
-        self.num_active_elec_alpha = num_active_elec_alpha
-        self.num_active_elec_beta = num_active_elec_beta
-        self.idx2det = idx2det
-        self.det2idx = det2idx
-        self.space_extension_offset = 0
-
-
-def get_indexing(
-    num_inactive_orbs: int,
-    num_active_orbs: int,
-    num_virtual_orbs: int,
-    num_active_elec_alpha: int,
-    num_active_elec_beta: int,
-) -> CI_Info:
-    """Get relation between index and determinant.
-
-    Args:
-        num_active_orbs: Number of active spatial orbitals.
-        num_active_elec_alpha: Number of active alpha electrons.
-        num_active_elec_beta: Number of active beta electrons.
-
-    Returns:
-        CI_Info object.
-    """
-    idx = 0
-    idx2det = []
-    det2idx = {}
-    # Loop over all possible particle and spin conserving determinant combinations
-    for alpha_string in multiset_permutations(
-        [1] * num_active_elec_alpha + [0] * (num_active_orbs - num_active_elec_alpha)
-    ):
-        for beta_string in multiset_permutations(
-            [1] * num_active_elec_beta + [0] * (num_active_orbs - num_active_elec_beta)
-        ):
-            det_str = ""
-            for a, b in zip(alpha_string, beta_string):
-                det_str += str(a) + str(b)
-            det = int(det_str, 2)  # save determinant as int
-            idx2det.append(det)  # relate index to determinant
-            det2idx[det] = idx  # relate determinant to index
-            idx += 1
-    return CI_Info(
-        num_inactive_orbs,
-        num_active_orbs,
-        num_virtual_orbs,
-        num_active_elec_alpha,
-        num_active_elec_beta,
-        np.array(idx2det, dtype=int),
-        det2idx,
-    )
 
 
 def build_operator_matrix(op: FermionicOperator, ci_info: CI_Info) -> np.ndarray:
@@ -126,16 +34,19 @@ def build_operator_matrix(op: FermionicOperator, ci_info: CI_Info) -> np.ndarray
     det2idx = ci_info.det2idx
     num_active_orbs = ci_info.num_active_orbs
     num_dets = len(idx2det)  # number of spin and particle conserving determinants
-    ones = np.ones(num_dets)  # Used with the determinant generator to ensure no determinants are screened.
+    ones = np.ones(
+        num_dets
+    )  # Used with the determinant generator below as state argument. This ensures that no screening of determinants based on state vector weight is performed.
     op_mat = np.zeros((num_dets, num_dets))  # basis
-    # Create bitstrings for parity check. Key=orbital index. Value=det as int
+    # Create bitstrings for parity check. Contains occupied determinant up to orbital index.
     parity_check = np.zeros(2 * num_active_orbs + 1, dtype=int)
     num = 0
     for i in range(2 * num_active_orbs - 1, -1, -1):
         num += 2**i
         parity_check[2 * num_active_orbs - i] = num
     # loop over all strings of annihilation operators in FermionicOperator sum
-    for fermi_label in op.factors:
+    for fermi_label in op.factors:  # get strings as key of op.factors
+        # Separate each annihilation operator string in creation and annihilation indices
         anni_idx = []
         create_idx = []
         for fermi_op in op.operators[fermi_label]:
@@ -165,11 +76,11 @@ def propagate_state(
     thetas: Sequence[float],
     wf_struct: UpsStructure | UccStructure,
     do_folding: bool = True,
-    unsafe: bool = False,
+    do_unsafe: bool = False,
 ) -> np.ndarray:
-    r"""Propagate state by applying operator.
+    r"""Propagate state by applying operators.
 
-    The operator will be folded to only work on the active orbitals.
+    The operators will be folded to only work on the active orbitals.
     The resulting state should not be acted on with another folded operator.
     This would violate the "do not multiply folded operators" rule.
 
@@ -184,6 +95,8 @@ def propagate_state(
                Ordered as (S, D, T, ...).
         wf_struct: wave function structure object.
         do_folding: Do folding of operator (default: True).
+        do_unsafe: Ignore elements that are outside the space defined in ci_info. (default: False)
+                If not ignored, getting elements outside the space will stop the calculation.
 
     Returns:
         New state.
@@ -197,7 +110,7 @@ def propagate_state(
         return np.copy(state)
     new_state = np.copy(state)
     tmp_state = np.zeros_like(state)
-    # Create bitstrings for parity check. Key=orbital index. Value=det as int
+    # Create bitstrings for parity check. Contains occupied determinant up to orbital index.
     parity_check = np.zeros(2 * num_active_orbs + 1, dtype=int)
     num = 0
     for i in range(2 * num_active_orbs - 1, -1, -1):
@@ -239,6 +152,7 @@ def propagate_state(
                 op_folded = op
             # loop over all strings of annihilation operators in FermionicOperator sum
             for fermi_label in op_folded.factors:
+                # Separate each annihilation operator string in creation and annihilation indices
                 anni_idx = []
                 create_idx = []
                 for fermi_op in op_folded.operators[fermi_label]:
@@ -248,7 +162,7 @@ def propagate_state(
                         anni_idx.append(fermi_op.idx)
                 anni_idx = np.array(anni_idx, dtype=int)
                 create_idx = np.array(create_idx, dtype=int)
-                # loop over all determinants
+                # loop over all determinants in new_state
                 for i, det in get_determinants(idx2det, new_state, anni_idx, create_idx, num_active_orbs):
                     phase_changes = 0
                     # evaluate how string of annihilation operator change det
@@ -257,7 +171,13 @@ def propagate_state(
                         det = det ^ 2 ** (2 * num_active_orbs - 1 - orb_idx)
                         # take care of phases using parity_check
                         phase_changes += (det & parity_check[orb_idx]).bit_count()
-                    if unsafe:
+                    if do_unsafe:
+                        # For some algorithms it is guaranteed that the application of operators will always
+                        # keep the new determinants within a pre-defined space (in det2idx and idx2det).
+                        # For these algorithms it is a sign of bug if a keyerror when calling det2idx is found.
+                        # These algorithms thus does also not need to check for the exsistence of the new determinant
+                        # in det2idx.
+                        # For other algorithms this 'safety' is not guaranteed, hence the keyword is called 'do_unsafe'.
                         if det not in det2idx:
                             continue
                     tmp_state[det2idx[det]] += (
@@ -352,7 +272,7 @@ def propagate_state_SA(
         return np.copy(state)
     new_state = np.copy(state)
     tmp_state = np.zeros_like(state)
-    # Create bitstrings for parity check. Key=orbital index. Value=det as int
+    # Create bitstrings for parity check. Contains occupied determinant up to orbital index.
     parity_check = np.zeros(2 * num_active_orbs + 1, dtype=int)
     num = 0
     for i in range(2 * num_active_orbs - 1, -1, -1):
@@ -386,6 +306,7 @@ def propagate_state_SA(
                 op_folded = op
             # loop over all strings of annihilation operators in FermionicOperator sum
             for fermi_label in op_folded.factors:
+                # Separate each annihilation operator string in creation and annihilation indices
                 anni_idx = []
                 create_idx = []
                 for fermi_op in op_folded.operators[fermi_label]:
@@ -504,9 +425,9 @@ def expectation_value(
     thetas: Sequence[float],
     wf_struct: UpsStructure | UccStructure,
     do_folding: bool = True,
-    unsafe: bool = False,
+    do_unsafe: bool = False,
 ) -> float:
-    """Calculate expectation value of operator.
+    """Calculate expectation value of operator using propagate state.
 
     Args:
         bra: Bra state.
@@ -516,6 +437,8 @@ def expectation_value(
         thetas: Active-space parameters.
                Ordered as (S, D, T, ...).
         wf_struct: Wave function structure object.
+        do_unsafe: Ignore elements that are outside the space defined in ci_info. (default: False)
+                If not ignored, getting elements outside the space will stop the calculation.
 
     Returns:
         Expectation value.
@@ -528,7 +451,7 @@ def expectation_value(
         thetas,
         wf_struct,
         do_folding=do_folding,
-        unsafe=unsafe,
+        do_unsafe=do_unsafe,
     )
     val = bra @ op_ket
     if not isinstance(val, float):
@@ -545,7 +468,7 @@ def expectation_value_SA(
     wf_struct: UpsStructure,
     do_folding: bool = True,
 ) -> float:
-    """Calculate expectation value of operator.
+    """Calculate expectation value of operator with a SA wave function using propagate state.
 
     Args:
         bra: Bra state.
@@ -656,6 +579,12 @@ def get_ucc_T(
         elif exc_type == "sa_double_2":
             (i, j, a, b) = np.array(exc_indices) + offset
             T += theta * G2_2_sa(i, j, a, b, True)
+        elif exc_type == "single":
+            (i, a) = np.array(exc_indices) + 2 * offset
+            T += theta * G1(i, a, True)
+        elif exc_type == "double":
+            (i, j, a, b) = np.array(exc_indices) + 2 * offset
+            T += theta * G2(i, j, a, b, True)
         elif exc_type == "triple":
             (i, j, k, a, b, c) = np.array(exc_indices) + 2 * offset
             T += theta * G3(i, j, k, a, b, c, True)
