@@ -59,13 +59,14 @@ class SubspaceExpansion:
             )
         else:
             raise ValueError(f"Got incompatible wave function type, {type(self.wf)}")
-        self.G_ops: list[FermionicOperator] = [FermionicOperator({"": []}, {"": 1.0})]
+        self.G_ops: list[FermionicOperator] = [] #[FermionicOperator({"": []}, {"": 1.0})]
+        self.G_ops_d: list[FermionicOperator] = [] #[FermionicOperator({"": []}, {"": 1.0})]
         excitations = excitations.lower()
         if "s" in excitations:
             for a, i, _ in iterate_t1_sa(self.wf.active_occ_idx, self.wf.active_unocc_idx):
                 self.G_ops.append(G1_sa(i, a))
                 if not do_TDA:
-                    self.G_ops.append(G1_sa(i, a).dagger)
+                    self.G_ops_d.append(G1_sa(i, a).dagger)
                 print(i, a)
                 #print(G1_sa(i, a).get_qiskit_form(num_orbs=4))
                
@@ -74,11 +75,11 @@ class SubspaceExpansion:
                 if op_type == 1:
                     self.G_ops.append(G2_1_sa(i, j, a, b))
                     if not do_TDA:
-                        self.G_ops.append(G2_1_sa(i, j, a, b).dagger)
+                        self.G_ops_d.append(G2_1_sa(i, j, a, b).dagger)
                 elif op_type == 2:
                     self.G_ops.append(G2_2_sa(i, j, a, b))
                     if not do_TDA:
-                        self.G_ops.append(G2_2_sa(i, j, a, b).dagger)
+                        self.G_ops_d.append(G2_2_sa(i, j, a, b).dagger)
                 print(a, i, b, j)
                 #print(G2_1_sa(i, j, a, b).get_qiskit_form(num_orbs=4))
         
@@ -110,11 +111,12 @@ class SubspaceExpansion:
                     self.G_ops.append(G6(i, j, k, l, m, n, a, b, c, d, e, f).dagger)
         num_parameters = len(self.G_ops)
 
-        #H = np.zeros((num_parameters, num_parameters))
-        #S = np.zeros((num_parameters, num_parameters))
-
         H = np.zeros((num_parameters+1, num_parameters+1))
         S = np.zeros((num_parameters+1, num_parameters+1))
+     
+        if not do_TDA:
+            H = np.zeros((2*num_parameters+1, 2*num_parameters+1))
+            S = np.zeros((2*num_parameters+1, 2*num_parameters+1))
 
         H_0i_0a = hamiltonian_0i_0a(
             self.wf.h_mo,
@@ -123,44 +125,77 @@ class SubspaceExpansion:
             self.wf.num_active_orbs,
         )
 
+        G_ket = []
+        Gd_ket = []
+        HG_ket = []
+        HGd_ket = []
+        for i in range(num_parameters):
+            GJ_ket = propagate_state([self.G_ops[i]], self.wf.ci_coeffs, *self.index_info)
+            G_ket.append(GJ_ket)
+            HG_ket.append(propagate_state([H_0i_0a], GJ_ket, *self.index_info))
+            if not do_TDA:
+                GJd_ket = propagate_state([self.G_ops_d[i]], self.wf.ci_coeffs, *self.index_info)
+                Gd_ket.append(GJd_ket)
+                HGd_ket.append(propagate_state([H_0i_0a], GJd_ket, *self.index_info))
+            
+        #H[0,0]=E_0 and S[0,0]=1:
+        ket = propagate_state([], self.wf.ci_coeffs, *self.index_info)
+        H[0, 0] = expectation_value(ket, [H_0i_0a], ket,*self.index_info,)
+        S[0, 0] = expectation_value(ket,[],ket,*self.index_info,)
 
-        for j, GJ in enumerate(self.G_ops):
-            ket = propagate_state([], self.wf.ci_coeffs, *self.index_info)
-            GJ_ket = propagate_state([GJ], self.wf.ci_coeffs, *self.index_info)
-            HGJ_ket = propagate_state([H_0i_0a], GJ_ket, *self.index_info)
-            for i, GI in enumerate(self.G_ops[j:], j):
-                GI_ket = propagate_state([GI], self.wf.ci_coeffs, *self.index_info)
-                # Make H
-                if i==j==0:
-                    H[i, j] = expectation_value(
-                    ket,
-                    [H_0i_0a],
-                    ket,
-                    *self.index_info,
-                    )
-                if i==0:
-                    H[i, j] = expectation_value(
-                    GI_ket,
-                    [H_0i_0a],
-                    ket,
-                    *self.index_info,
-                    )
-                    H[j, i] = H[i, j].conjugate()
-                if i!=0 and j>0:
-                    H[i, j] = expectation_value(
-                    GI_ket,
-                    [],
-                    HGJ_ket,
-                    *self.index_info,
-                    )
-                    H[j, i] = H[i, j].conjugate()
-                # Make S
-                S[i, j] = S[j, i] = expectation_value(
-                    GI_ket,
-                    [],
-                    GJ_ket,
-                    *self.index_info,
-                )
+        #H[0,j>0] and S[0,j>0]:
+        for j, GI_ket in enumerate(G_ket):
+            # Make H
+            #<Gd_jH>
+            H[0, j+1] = expectation_value(HG_ket[j],[],ket,*self.index_info,)
+            H[j+1, 0] = H[0, j+1].conjugate()
+            if not do_TDA:
+                #<G_jH>
+                H[0, j+1+num_parameters] = expectation_value(HGd_ket[j],[],ket,*self.index_info,)
+                H[j+1+num_parameters, 0] = H[0, j+1+num_parameters].conjugate()
+            # Make S
+            #<Gd_j>
+            S[0, j+1] = expectation_value(GI_ket,[],ket,*self.index_info,)
+            S[j+1, 0] = S[0, j+1].conjugate()
+            if not do_TDA:
+                #<G_j>
+                S[0, j+1+num_parameters] = expectation_value(ket,[],GI_ket,*self.index_info,)
+                S[j+1+num_parameters, 0] = S[0, j+1+num_parameters].conjugate()
+
+        #H[i>0,j>0]: 
+        for i, GI_ket in enumerate(G_ket):
+             for j, HGJ_ket in enumerate(HG_ket):
+                if j>=i:
+                    # Make H
+                    #<Gd_iHG_j>
+                    H[i+1, j+1] = expectation_value(GI_ket,[],HGJ_ket,*self.index_info,)
+                    H[j+1, i+1] = H[i+1, j+1].conjugate()
+                    if not do_TDA:
+                        #<G_iHG_j>
+                        H[i+1, j+1+num_parameters] = expectation_value(Gd_ket[i],[],HGJ_ket,*self.index_info,)
+                        H[j+1+num_parameters, i+1] = H[i+1, j+1+num_parameters].conjugate()
+                        #<G_iHGd_j>
+                        H[i+1+num_parameters, j+1+num_parameters] = expectation_value(Gd_ket[i],[],HGd_ket[j],*self.index_info,)
+                        H[j+1+num_parameters, i+1+num_parameters] = H[i+1+num_parameters, j+1+num_parameters].conjugate()
+
+        #S[i>0,j>0]:
+        for i, GI_ket in enumerate(G_ket):
+             for j, GJ_ket in enumerate(G_ket):
+                if j>=i:
+                    # Make S
+                    #<Gd_iG_j>
+                    S[i+1, j+1] = expectation_value(GI_ket,[],GJ_ket,*self.index_info,)
+                    S[j+1, i+1] = S[i+1, j+1].conjugate()
+                    print(i+1, j+1)
+                    if not do_TDA:
+                        print(i+1, j+1+num_parameters)
+                        #<G_iG_j>
+                        S[i+1, j+1+num_parameters] = expectation_value(Gd_ket[i],[],GJ_ket,*self.index_info,)
+                        S[j+1+num_parameters, i+1] = S[i+1, j+1+num_parameters].conjugate()
+                        #<G_iGd_j>
+                        S[i+1+num_parameters, j+1+num_parameters] = expectation_value(Gd_ket[i],[],Gd_ket[j],*self.index_info,)
+                        S[j+1+num_parameters, i+1+num_parameters] = S[i+1+num_parameters, j+1+num_parameters].conjugate()
+
 
         self.H = H
         self.S = S
