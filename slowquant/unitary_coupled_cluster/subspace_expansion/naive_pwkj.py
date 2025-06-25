@@ -35,7 +35,7 @@ class SubspaceExpansion:
     index_info: tuple[CI_Info, list[float], UpsStructure] | tuple[CI_Info, list[float], UccStructure]
 
     def __init__(
-        self, wave_function: WaveFunctionUCC | WaveFunctionUPS, excitations: str, do_TDA: bool = True
+        self, wave_function: WaveFunctionUCC | WaveFunctionUPS, excitations: str, do_TDA: bool = False
     ) -> None:
         """Initialize subspace expansion by calculating the needed matrices.
 
@@ -67,7 +67,7 @@ class SubspaceExpansion:
                 self.G_ops.append(G1_sa(i, a))
                 if not do_TDA:
                     self.G_ops_d.append(G1_sa(i, a).dagger)
-                print(i, a)
+                #print(a, i)
                 #print(G1_sa(i, a).get_qiskit_form(num_orbs=2))
                
         if "d" in excitations:
@@ -80,7 +80,7 @@ class SubspaceExpansion:
                     self.G_ops.append(G2_2_sa(i, j, a, b))
                     if not do_TDA:
                         self.G_ops_d.append(G2_2_sa(i, j, a, b).dagger)
-                print(a, i, b, j)
+                #print(a, b, i, j)
                 #print(G2_1_sa(i, j, a, b).get_qiskit_form(num_orbs=2))
         
         if "t" in excitations:
@@ -95,21 +95,21 @@ class SubspaceExpansion:
             ):
                 self.G_ops.append(G4(i, j, k, l, a, b, c, d))
                 if not do_TDA:
-                    self.G_ops.append(G4(i, j, k, l, a, b, c, d).dagger)
+                    self.G_ops_d.append(G4(i, j, k, l, a, b, c, d).dagger)
         if "5" in excitations:
             for a, i, b, j, c, k, d, l, e, m in iterate_t5(
                 self.wf.active_occ_spin_idx, self.wf.active_unocc_spin_idx
             ):
                 self.G_ops.append(G5(i, j, k, l, m, a, b, c, d, e))
                 if not do_TDA:
-                    self.G_ops.append(G5(i, j, k, l, m, a, b, c, d, e).dagger)
+                    self.G_ops_d.append(G5(i, j, k, l, m, a, b, c, d, e).dagger)
         if "6" in excitations:
             for a, i, b, j, c, k, d, l, e, m, f, n in iterate_t6(
                 self.wf.active_occ_spin_idx, self.wf.active_unocc_spin_idx
             ):
                 self.G_ops.append(G6(i, j, k, l, m, n, a, b, c, d, e, f))
                 if not do_TDA:
-                    self.G_ops.append(G6(i, j, k, l, m, n, a, b, c, d, e, f).dagger)
+                    self.G_ops_d.append(G6(i, j, k, l, m, n, a, b, c, d, e, f).dagger)
         num_parameters = len(self.G_ops)
 
         H = np.zeros((num_parameters+1, num_parameters+1))
@@ -148,10 +148,10 @@ class SubspaceExpansion:
 
         #H[0,j>0] and S[0,j>0]:
         if do_TDA:
-            for j, HGJ_ket in enumerate(HG_ket):
+            for j in range(num_parameters):
                 # Make H
                 #<Gd_jH>
-                H[0, j+1] = expectation_value(HGJ_ket,[],ket,*self.index_info,)
+                H[0, j+1] = expectation_value(HG_ket[j],[],ket,*self.index_info,)
                 H[j+1, 0] = H[0, j+1].conjugate()
                 # Make S
                 #<Gd_j> 
@@ -166,11 +166,11 @@ class SubspaceExpansion:
                     if j>=i:
                         # Make H
                         #<Gd_iHG_j> 
-                        H[i+1, j+1] = expectation_value(GI_ket,[],HGJ_ket,*self.index_info,)
+                        H[i+1, j+1] = expectation_value(G_ket[i],[],HG_ket[j],*self.index_info,)
                         H[j+1, i+1] = H[i+1, j+1].conjugate()
                         # Make S
                         #<Gd_iG_j>
-                        S[i+1, j+1] = expectation_value(GI_ket,[],G_ket[j],*self.index_info,)
+                        S[i+1, j+1] = expectation_value(G_ket[i],[],G_ket[j],*self.index_info,)
                         S[j+1, i+1] = S[i+1, j+1].conjugate()
 
         #H[0,j>0] and S[0,j>0]:
