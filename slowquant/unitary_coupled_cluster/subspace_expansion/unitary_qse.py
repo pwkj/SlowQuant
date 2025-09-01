@@ -147,9 +147,7 @@ class SubspaceExpansion:
                     else:
                         S[i+1, j+1] = expectation_value(G_ket[i],[],G_ket[j],*self.index_info,)
                         S[j+1, i+1] = S[i+1, j+1].conjugate()
-                    # if i==j:
-                    #     print("S[i+1, i+1] = ",S[i+1, i+1])
-                    #     #Make an assert for !=1 !
+      
                    
         self.H = H
         self.S = S  
