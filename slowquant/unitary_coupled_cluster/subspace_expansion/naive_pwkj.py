@@ -125,24 +125,12 @@ class SubspaceExpansion:
         G_ket = []
         Gd_ket = []
         HG_ket = []
-        GdH_ket = []
         HGd_ket = []
         for j, op in enumerate(self.G_ops):
             G_ket.append(propagate_state([op], self.wf.ci_coeffs, *self.index_info))
             Gd_ket.append(propagate_state([op.dagger], self.wf.ci_coeffs, *self.index_info))
             HG_ket.append(propagate_state([H_0i_0a * op], self.wf.ci_coeffs, *self.index_info))
-            GdH_ket.append(propagate_state([op.dagger * H_0i_0a], self.wf.ci_coeffs, *self.index_info))
             HGd_ket.append(propagate_state([H_0i_0a * op.dagger], self.wf.ci_coeffs, *self.index_info))
-
-        q_ket = []
-        Hq_ket = []
-        qdH_ket = []
-        for j, qJ in enumerate(self.q_ops):
-            #print(self.q_ops[i].get_qiskit_form(num_orbs=6))
-            q_ket.append(propagate_state([qJ], self.wf.ci_coeffs, *self.index_info))
-            Hq_ket.append(propagate_state([H_1i_1a * qJ], self.wf.ci_coeffs, *self.index_info))
-            qdH_ket.append(propagate_state([qJ.dagger * H_1i_1a], self.wf.ci_coeffs, *self.index_info))
-           
 
         #H[0,0]=E_0 and S[0,0]=1:
         ket = propagate_state([], self.wf.ci_coeffs, *self.index_info)
@@ -150,28 +138,34 @@ class SubspaceExpansion:
         S[0, 0] = expectation_value(ket,[],ket,*self.index_info,)
 
         # Make H
-        for j in range(q_ops_num_parameters):
+        for j, qJ in enumerate(self.q_ops):
             #<0|Hq|0>
-            H[0, j+1] = expectation_value(ket,[],Hq_ket[j],*self.index_info,)
+            Hq = propagate_state([H_1i_1a * qJ], self.wf.ci_coeffs, *self.index_info)
+            H[0, j+1] = expectation_value(ket,[],Hq,*self.index_info,)
             #print(i+1)
-            for i in range(q_ops_num_parameters):
-                #<0|qdHq|0>
-                H[i+1, j+1] = expectation_value(q_ket[i],[],Hq_ket[j],*self.index_info,)
-                #print(i+1, j+1)
 
-        for i in range(q_ops_num_parameters): 
-            for j in range(G_ops_num_parameters):
+        for i, qI in enumerate(self.q_ops):
+            for j, qJ in enumerate(self.q_ops):
+                if i<=j:
+                    #<0|qdHq|0>
+                    qdHq = propagate_state([qI.dagger * H_1i_1a * qJ], self.wf.ci_coeffs, *self.index_info)
+                    H[i+1, j+1] = expectation_value(ket,[],qdHq,*self.index_info,)
+
+        for i, qI in enumerate(self.q_ops):
+            for j, GJ in enumerate(self.G_ops):
                 #<0|qdHG|0>
-                H[i+1, q_ops_num_parameters+j+1] = expectation_value(q_ket[i],[],HG_ket[j],*self.index_info,)
-                #print(q_ops_num_parameters+i+1, j+1)
+                qdHG = propagate_state([qI.dagger * H_1i_1a * GJ], self.wf.ci_coeffs, *self.index_info)
+                H[i+1, q_ops_num_parameters+j+1] = expectation_value(ket,[],qdHG,*self.index_info,)
+
                 #<0|qdHGd|0>
-                H[i+1, G_ops_num_parameters+q_ops_num_parameters+j+1] = expectation_value(q_ket[i],[],GdH_ket[j],*self.index_info,)
+                qdHGd = propagate_state([qI.dagger * H_1i_1a * GJ.dagger], self.wf.ci_coeffs, *self.index_info)
+                H[i+1, q_ops_num_parameters+j+1] = expectation_value(ket,[],qdHGd,*self.index_info,)
 
         for j in range(G_ops_num_parameters):
             # <0|HG|0>
             H[0, q_ops_num_parameters+j+1] = expectation_value(ket,[],HG_ket[j],*self.index_info,)
             # <0|HGd|0>
-            H[0, G_ops_num_parameters+q_ops_num_parameters+j+1] = expectation_value(ket,[],GdH_ket[j],*self.index_info,)
+            H[0, G_ops_num_parameters+q_ops_num_parameters+j+1] = expectation_value(ket,[],HGd_ket[j],*self.index_info,)
             for i in range(G_ops_num_parameters):
                 # <0|GdHG|0>
                 H[q_ops_num_parameters+i+1, q_ops_num_parameters+j+1] = expectation_value(G_ket[i],[],HG_ket[j],*self.index_info,)
@@ -180,65 +174,9 @@ class SubspaceExpansion:
                 # <0|GHGd|0>
                 H[G_ops_num_parameters+q_ops_num_parameters+i+1, G_ops_num_parameters+q_ops_num_parameters+j+1] = expectation_value(HGd_ket[i],[],Gd_ket[j],*self.index_info,)
 
-            
-
-        #     #<Gd_jH> and <G_jH>
-        #     H[0, i+1] = expectation_value(HG_ket[i],[],ket,*self.index_info,)
-        #     H[i+1, 0] = H[0, i+1].conjugate()
-        #     #<G_jH> and <HGd_j>
-        #     H[0, i+1+num_parameters] = expectation_value(HGd_ket[i],[],ket,*self.index_info,)  
-        #     H[i+1+num_parameters,0] = H[0, i+1+num_parameters]
-        #     # Make S
-        #     #<Gd_j> and <G_j> 
-        #     S[0, i+1] = expectation_value(G_ket[i],[],ket,*self.index_info,)
-        #     S[i+1, 0] = S[0, i+1].conjugate()
-        #     #<G_j> and <Gd_j>
-        #     S[0, i+1+num_parameters] = expectation_value(ket,[],G_ket[i],*self.index_info,)
-        #     S[i+1+num_parameters, 0] = S[0, i+1+num_parameters].conjugate()
-            
-        # #H[i>0,j>0] and S[i>0,j>0]: 
-        # if not do_TDA:
-        #     for i in range(num_parameters):
-        #         for j in range(num_parameters):
-        #             if j>=i:
-        #                 # Make H
-        #                 # <Gd_iHG_j> 
-        #                 H[i+1, j+1] = expectation_value(G_ket[j],[],HG_ket[i],*self.index_info,)
-        #                 H[j+1, i+1] = H[i+1, j+1].conjugate()
-        #                 # Make S
-        #                 # <Gd_iG_j>
-        #                 S[i+1, j+1] = expectation_value(G_ket[j],[],G_ket[i],*self.index_info,)
-        #                 S[j+1, i+1] = S[i+1, j+1].conjugate()
-        #             # Make H
-        #             # <G_iHG_j> 
-        #             H[i+1, j+1+num_parameters] = expectation_value(Gd_ket[j],[],HG_ket[i],*self.index_info,)
-        #             # Make S
-        #             # <G_iG_j>
-        #             S[i+1, j+1+num_parameters] = expectation_value(Gd_ket[j],[],G_ket[i],*self.index_info,)
-                   
-
-        #     for i in range(num_parameters):
-        #         for j in range(num_parameters):
-        #             if j>=i:
-        #                 # Make H
-        #                 #<G_iHGd_j>
-        #                 H[i+1+num_parameters, j+1+num_parameters] = expectation_value(Gd_ket[j],[],HGd_ket[i],*self.index_info,)
-        #                 H[j+1+num_parameters, i+1+num_parameters] = H[i+1+num_parameters, j+1+num_parameters].conjugate()
-        #                 # Make S
-        #                 # <G_iGd_j>
-        #                 S[i+1+num_parameters, j+1+num_parameters] = expectation_value(Gd_ket[j],[],Gd_ket[i],*self.index_info,)
-        #                 S[j+1+num_parameters, i+1+num_parameters] = S[i+1+num_parameters, j+1+num_parameters].conjugate()
-
-        #             # Make H
-        #             # <Gd_iHGd_j> 
-        #             H[i+1+num_parameters, j+1] = expectation_value(G_ket[j],[],HGd_ket[i],*self.index_info,)
-        #             # Make S
-        #             # <Gd_iGd_j>
-        #             S[i+1+num_parameters, j+1] = expectation_value(G_ket[j],[],Gd_ket[i],*self.index_info,)
-                    
-                           
-        #     self.H = H
-        #     self.S = S  
+               
+            self.H = H + np.tril(H.T,-1)
+            #self.S = S  
 
         # eigval, _ = scipy.linalg.eig(H, S)
         # sorting = np.argsort(eigval)
